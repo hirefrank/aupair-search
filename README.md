@@ -2,7 +2,7 @@
 
 Culture Care-first au pair search automation on Cloudflare Workers.
 
-It runs every 15 minutes, finds candidates that match your criteria, and sends rich Slack notifications.
+It runs every 15 minutes, finds candidates that match your criteria, and sends compact Slack notifications.
 It deduplicates via KV so the same candidate is not sent twice.
 
 ## What it does
@@ -15,8 +15,8 @@ It deduplicates via KV so the same candidate is not sent twice.
   - female-only
   - minimum English level
   - arrival date window
-- Sends Slack Block Kit notifications with emojis and candidate details.
-- Includes a direct ⭐ bookmark link that opens the candidate on Culture Care.
+- Sends Slack Block Kit notifications with concise candidate summaries.
+- Includes a direct `View Full Profile` button to open full candidate details on Culture Care.
 - Sends auth-expiry Slack alert with reauth button when Culture Care auth fails.
 
 ## Required stack
@@ -87,7 +87,7 @@ Configured with env vars (defaults currently set to your request):
 
 ## Slack quick actions
 
-Candidate Slack cards include a direct `⭐ Open in Culture Care and bookmark` link.
+Candidate Slack cards include a direct `View Full Profile` button to open full details in Culture Care.
 
 ## Worker endpoints
 

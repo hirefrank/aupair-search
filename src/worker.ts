@@ -130,7 +130,6 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
   const maxPages = asNumber(env.MAX_PAGES, 200);
   const notifyMax = asNumber(env.SLACK_NOTIFY_MAX, 25);
   const ttlDays = asNumber(env.MATCH_NOTIFIED_TTL_DAYS, 30);
-  const singleMessageMode = String(env.SLACK_SINGLE_MESSAGE_MODE || "false") === "true";
   const skipKvWrites = String(env.SLACK_SKIP_KV_WRITES || "false") === "true";
 
   let run;
@@ -163,8 +162,7 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     const sent = await sendSlackCandidates(matchesForSlack, {
       webhookUrl,
       threshold: run.effectiveThreshold,
-      maxProfiles: notifyMax,
-      singleMessageMode
+      maxProfiles: notifyMax
     });
     notifiedMatches = sent.sent;
     if (!skipKvWrites && freshKeys.length) {
