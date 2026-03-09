@@ -1,0 +1,36 @@
+name = "aupair-search"
+main = "src/worker.ts"
+compatibility_date = "2026-02-16"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENABLE_CULTURECARE = "true"
+ENABLE_APIA = "false"
+MAX_PAGES = "200"
+CULTURECARE_SEARCH_BODY_JSON = "{}"
+MATCH_SCORE_THRESHOLD = "60"
+MATCH_MIN_AGE = "22"
+MATCH_REQUIRE_FEMALE = "true"
+MATCH_MIN_ENGLISH_LEVEL = "6"
+MATCH_ARRIVAL_EARLIEST = "2026-06-01"
+MATCH_ARRIVAL_LATEST = "2026-07-31"
+MATCH_REQUIRED_PETS = "dogs"
+MATCH_ALLOWED_DRIVING_FREQUENCIES = "daily,weekly"
+MATCH_MIN_DRIVING_YEARS = "1"
+MATCH_REQUIRE_SWIMMING_SUPERVISION = "true"
+MATCH_REQUIRE_LIVED_AWAY_FROM_HOME = "true"
+SLACK_NOTIFY_MAX = "25"
+SLACK_SINGLE_MESSAGE_MODE = "true"
+SLACK_SKIP_KV_WRITES = "true"
+AUTH_ALERT_TTL_HOURS = "12"
+CULTURECARE_REAUTH_URL = "https://hostfamily.culturalcare.com"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "MATCH_NOTIFICATIONS"
+id = "be7830ba8834447499dd9e2f1d769f3f"
+
+[observability]
+enabled = true
