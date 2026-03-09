@@ -1,6 +1,12 @@
 import { Hono } from "hono";
+import { fetchWithRetry } from "./lib/http.js";
 import { runSearchPipeline } from "./lib/searchPipeline.js";
-import { sendCultureCareAuthAlert, sendSlackCandidates } from "./lib/slack.js";
+import {
+  buildCandidateDetailsModal,
+  parseCandidateDetailsPayload,
+  sendCultureCareAuthAlert,
+  sendSlackCandidates
+} from "./lib/slack.js";
 import type { RankedProfile } from "./types.js";
 
 type Bindings = {
@@ -11,7 +17,78 @@ type Bindings = {
   [key: string]: unknown;
 };
 
+type SlackBlockAction = {
+  action_id?: string;
+  value?: string;
+};
+
+type SlackActionsPayload = {
+  type?: string;
+  token?: string;
+  trigger_id?: string;
+  actions?: SlackBlockAction[];
+};
+
 const app = new Hono<{ Bindings: Bindings }>();
+
+function secureCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function verifySlackSignature(
+  rawBody: string,
+  timestampHeader: string,
+  signatureHeader: string,
+  signingSecret: string
+): Promise<boolean> {
+  const timestampSeconds = Number(timestampHeader);
+  if (!Number.isFinite(timestampSeconds)) return false;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - timestampSeconds) > 60 * 5) {
+    return false;
+  }
+
+  const encoder = new TextEncoder();
+  const signingBase = `v0:${timestampHeader}:${rawBody}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(signingSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(signingBase));
+  const signatureHex = Array.from(new Uint8Array(signatureBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const expected = `v0=${signatureHex}`;
+
+  return secureCompare(expected, signatureHeader);
+}
+
+async function isAuthorizedSlackAction(
+  rawBody: string,
+  payload: SlackActionsPayload,
+  env: NodeJS.ProcessEnv,
+  signatureHeader: string,
+  timestampHeader: string
+): Promise<boolean> {
+  const signingSecret = env.SLACK_SIGNING_SECRET || "";
+  if (signingSecret) {
+    return verifySlackSignature(rawBody, timestampHeader, signatureHeader, signingSecret);
+  }
+
+  const expectedToken = env.SLACK_ACTION_TOKEN || "";
+  if (!expectedToken) return false;
+  if (typeof payload.token !== "string") return false;
+  return secureCompare(payload.token, expectedToken);
+}
 
 function asNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -131,6 +208,7 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
   const notifyMax = asNumber(env.SLACK_NOTIFY_MAX, 25);
   const ttlDays = asNumber(env.MATCH_NOTIFIED_TTL_DAYS, 30);
   const skipKvWrites = String(env.SLACK_SKIP_KV_WRITES || "false") === "true";
+  const enableDetailsModal = String(env.SLACK_ENABLE_DETAILS_MODAL || "false") === "true";
 
   let run;
   try {
@@ -162,7 +240,8 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     const sent = await sendSlackCandidates(matchesForSlack, {
       webhookUrl,
       threshold: run.effectiveThreshold,
-      maxProfiles: notifyMax
+      maxProfiles: notifyMax,
+      enableDetailsModal
     });
     notifiedMatches = sent.sent;
     if (!skipKvWrites && freshKeys.length) {
@@ -183,6 +262,97 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
 
 app.get("/api/health", (c) => {
   return c.json({ ok: true, service: "aupair-search" });
+});
+
+app.post("/api/slack/actions", async (c) => {
+  const env = toRuntimeEnv(c.env);
+  const rawBody = await c.req.text();
+  const params = new URLSearchParams(rawBody);
+  const payloadText = params.get("payload") || "";
+
+  if (!payloadText) {
+    return c.text("Missing Slack payload", 400);
+  }
+
+  let payload: SlackActionsPayload;
+  try {
+    payload = JSON.parse(payloadText) as SlackActionsPayload;
+  } catch {
+    return c.text("Invalid Slack payload", 400);
+  }
+
+  const signatureHeader = c.req.header("x-slack-signature") || "";
+  const timestampHeader = c.req.header("x-slack-request-timestamp") || "";
+  const authorized = await isAuthorizedSlackAction(
+    rawBody,
+    payload,
+    env,
+    signatureHeader,
+    timestampHeader
+  );
+
+  if (!authorized) {
+    return c.text("Unauthorized", 401);
+  }
+
+  if (payload.type !== "block_actions" || !Array.isArray(payload.actions) || payload.actions.length === 0) {
+    return c.text("");
+  }
+
+  const action = payload.actions[0];
+  if (action.action_id !== "view_candidate_details") {
+    return c.text("");
+  }
+
+  const details = parseCandidateDetailsPayload(typeof action.value === "string" ? action.value : "");
+  if (!details) {
+    return c.text("");
+  }
+
+  const triggerId = typeof payload.trigger_id === "string" ? payload.trigger_id : "";
+  if (!triggerId) {
+    return c.text("");
+  }
+
+  const botToken = env.SLACK_BOT_TOKEN || "";
+  if (!botToken) {
+    console.error("Missing SLACK_BOT_TOKEN for Slack modal actions");
+    return c.text("");
+  }
+
+  const view = buildCandidateDetailsModal(details);
+
+  try {
+    const response = await fetchWithRetry(
+      "https://slack.com/api/views.open",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${botToken}`,
+          "content-type": "application/json; charset=utf-8"
+        },
+        body: JSON.stringify({ trigger_id: triggerId, view })
+      },
+      {
+        retries: 2,
+        minDelayMs: 250,
+        maxDelayMs: 1_000,
+        timeoutMs: 8_000
+      }
+    );
+
+    const body = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || body.ok !== true) {
+      console.error("Slack views.open failed", {
+        status: response.status,
+        error: typeof body.error === "string" ? body.error : "unknown"
+      });
+    }
+  } catch (error) {
+    console.error("Slack modal open request failed", error);
+  }
+
+  return c.text("");
 });
 
 app.post("/api/run-search", async (c) => {

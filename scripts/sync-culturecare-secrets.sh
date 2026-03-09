@@ -44,8 +44,20 @@ fi
 if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
   SLACK_WEBHOOK_URL="$(read_env_value "SLACK_WEBHOOK_URL" "$ENV_FILE")"
 fi
+if [ -z "${SLACK_ENABLE_DETAILS_MODAL:-}" ]; then
+  SLACK_ENABLE_DETAILS_MODAL="$(read_env_value "SLACK_ENABLE_DETAILS_MODAL" "$ENV_FILE")"
+fi
 if [ -z "${MANUAL_TRIGGER_TOKEN:-}" ]; then
   MANUAL_TRIGGER_TOKEN="$(read_env_value "MANUAL_TRIGGER_TOKEN" "$ENV_FILE")"
+fi
+if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+  SLACK_BOT_TOKEN="$(read_env_value "SLACK_BOT_TOKEN" "$ENV_FILE")"
+fi
+if [ -z "${SLACK_SIGNING_SECRET:-}" ]; then
+  SLACK_SIGNING_SECRET="$(read_env_value "SLACK_SIGNING_SECRET" "$ENV_FILE")"
+fi
+if [ -z "${SLACK_ACTION_TOKEN:-}" ]; then
+  SLACK_ACTION_TOKEN="$(read_env_value "SLACK_ACTION_TOKEN" "$ENV_FILE")"
 fi
 
 # Optional extractor command: must print JSON like
@@ -99,9 +111,29 @@ if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
   echo "Updated SLACK_WEBHOOK_URL"
 fi
 
+if [ -n "${SLACK_ENABLE_DETAILS_MODAL:-}" ]; then
+  printf "%s" "$SLACK_ENABLE_DETAILS_MODAL" | bunx wrangler secret put SLACK_ENABLE_DETAILS_MODAL --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated SLACK_ENABLE_DETAILS_MODAL"
+fi
+
 if [ -n "${MANUAL_TRIGGER_TOKEN:-}" ]; then
   printf "%s" "$MANUAL_TRIGGER_TOKEN" | bunx wrangler secret put MANUAL_TRIGGER_TOKEN --config "$WRANGLER_CONFIG_FILE"
   echo "Updated MANUAL_TRIGGER_TOKEN"
+fi
+
+if [ -n "${SLACK_BOT_TOKEN:-}" ]; then
+  printf "%s" "$SLACK_BOT_TOKEN" | bunx wrangler secret put SLACK_BOT_TOKEN --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated SLACK_BOT_TOKEN"
+fi
+
+if [ -n "${SLACK_SIGNING_SECRET:-}" ]; then
+  printf "%s" "$SLACK_SIGNING_SECRET" | bunx wrangler secret put SLACK_SIGNING_SECRET --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated SLACK_SIGNING_SECRET"
+fi
+
+if [ -n "${SLACK_ACTION_TOKEN:-}" ]; then
+  printf "%s" "$SLACK_ACTION_TOKEN" | bunx wrangler secret put SLACK_ACTION_TOKEN --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated SLACK_ACTION_TOKEN"
 fi
 
 echo "Secret sync complete"

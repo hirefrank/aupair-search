@@ -16,7 +16,9 @@ It deduplicates via KV so the same candidate is not sent twice.
   - minimum English level
   - arrival date window
 - Sends Slack Block Kit notifications with concise candidate summaries.
-- Includes a direct `View Full Profile` button to open full candidate details on Culture Care.
+- Includes a `View Details` button that opens the full profile link.
+- Optional: in-Slack `View Details` modal via Slack interactivity when enabled.
+- When modal mode is enabled, also includes an `Open Profile` button.
 - Sends auth-expiry Slack alert with reauth button when Culture Care auth fails.
 
 ## Required stack
@@ -37,6 +39,10 @@ Set required values in `.env`:
 
 - `CULTURECARE_REFRESH_TOKEN` (recommended) and/or `CULTURECARE_BEARER`
 - `SLACK_WEBHOOK_URL`
+- `SLACK_ENABLE_DETAILS_MODAL` (`true` only if you want in-Slack modal details)
+- `SLACK_BOT_TOKEN` (required when `SLACK_ENABLE_DETAILS_MODAL=true`)
+- `SLACK_SIGNING_SECRET` (required when `SLACK_ENABLE_DETAILS_MODAL=true`)
+- `SLACK_ACTION_TOKEN` (optional legacy fallback only if you cannot use signing secret)
 - `MANUAL_TRIGGER_TOKEN` (random secret string)
 
 Then sync secrets to Cloudflare:
@@ -85,13 +91,36 @@ Configured with env vars (defaults currently set to your request):
 - `MATCH_REQUIRE_SWIMMING_SUPERVISION=true`
 - `MATCH_REQUIRE_LIVED_AWAY_FROM_HOME=true`
 
+## Slack app setup (modal mode)
+
+If you only want profile links in Slack cards, keep `SLACK_ENABLE_DETAILS_MODAL=false` and skip this section.
+
+If you want the in-Slack `View Details` modal:
+
+1. Create a Slack app in your workspace.
+2. Enable **Incoming Webhooks** and add one webhook URL to the target channel.
+3. In **OAuth & Permissions**, add bot scope `commands`, then install/reinstall the app.
+4. Copy **Bot User OAuth Token** to `SLACK_BOT_TOKEN`.
+5. In **Basic Information**, copy **Signing Secret** to `SLACK_SIGNING_SECRET`.
+6. In **Interactivity & Shortcuts**, enable interactivity and set Request URL to:
+   - `https://<your-worker-domain>/api/slack/actions`
+7. Set `SLACK_ENABLE_DETAILS_MODAL=true`, then run `bun run sync:secrets` and `bun run worker:deploy`.
+
 ## Slack quick actions
 
-Candidate Slack cards include a direct `View Full Profile` button to open full details in Culture Care.
+Candidate Slack cards include:
+
+- `View Details` to open the direct profile URL
+- Optional in-Slack modal details plus `Open Profile` button (requires `SLACK_ENABLE_DETAILS_MODAL=true`)
+
+To enable in-Slack modal details, set `SLACK_ENABLE_DETAILS_MODAL=true` and configure Slack app interactivity to point to:
+
+- `POST /api/slack/actions` on your Worker base URL
 
 ## Worker endpoints
 
 - `GET /api/health`
+- `POST /api/slack/actions` (Slack interactivity endpoint)
 - `POST /api/run-search` (`Authorization: Bearer <MANUAL_TRIGGER_TOKEN>`)
 
 ## Secret sync cron (local)

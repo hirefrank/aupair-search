@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -48,9 +48,9 @@ Adapters (parallel)  →  Merge & dedupe  →  Score (PREFERENCES_JSON)
 - **`src/adapters/apia.ts`** — HTML scraper using Cheerio. Cookie-based session, anti-forgery tokens, POST-based pagination.
 - **`src/auth/cognito.ts`** — AWS Cognito `InitiateAuth` for Culture Care token refresh.
 - **`src/lib/utils.ts`** — Scoring engine (`scoreProfile`), profile normalization, deduplication, JWT helpers, CSV export.
-- **`src/lib/slack.ts`** — Block Kit message formatting with two notification modes (per-candidate or single rich message).
+- **`src/lib/slack.ts`** — Slack Block Kit formatting, optional modal payload building/parsing, auth-expiry alert notifications.
 - **`src/lib/http.ts`** — `fetchWithRetry` with exponential backoff, jitter, and `Retry-After` support.
-- **`src/worker.ts`** — Hono app with health check, manual trigger endpoint, and cron handler. Manages KV-based notification dedup.
+- **`src/worker.ts`** — Hono app with health check, Slack interactivity endpoint (`/api/slack/actions`), manual trigger endpoint, and cron handler. Manages KV-based notification dedup.
 
 ### Adapter contract
 
@@ -58,7 +58,7 @@ Both adapters implement `run({ maxPages })` returning `AdapterRunResult { source
 
 ## Code conventions
 
-Detailed guidelines are in `AGENTS.md`. Key points:
+Key points:
 
 - ESM imports with `.js` extensions on local imports
 - Strict TypeScript; prefer `unknown` over `any`
@@ -69,7 +69,15 @@ Detailed guidelines are in `AGENTS.md`. Key points:
 
 ## Environment
 
-Start from `.env.example`. Secrets: `CULTURECARE_BEARER`, `CULTURECARE_REFRESH_TOKEN`, `SLACK_WEBHOOK_URL`, `MANUAL_TRIGGER_TOKEN`. Worker uses Cloudflare bindings (not `.env`); the `MATCH_NOTIFICATIONS` KV namespace is required for dedup.
+Start from `.env.example`. Core secrets: `CULTURECARE_BEARER` and/or `CULTURECARE_REFRESH_TOKEN`, `SLACK_WEBHOOK_URL`, `MANUAL_TRIGGER_TOKEN`.
+
+For Slack modal mode (`SLACK_ENABLE_DETAILS_MODAL=true`), also set:
+
+- `SLACK_BOT_TOKEN`
+- `SLACK_SIGNING_SECRET` (recommended)
+- `SLACK_ACTION_TOKEN` (legacy fallback only if signing secret is unavailable)
+
+Worker uses Cloudflare bindings (not local `.env` at runtime); the `MATCH_NOTIFICATIONS` KV namespace is required for dedup.
 
 ## Validation before handoff
 

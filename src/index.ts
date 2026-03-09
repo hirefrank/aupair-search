@@ -14,6 +14,7 @@ const RUNS_DIR = process.env.RUNS_DIR || path.join(OUTPUT_DIR, "runs");
 const MAX_PAGES = Number(process.env.MAX_PAGES || 200);
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const SLACK_NOTIFY_MAX = Number(process.env.SLACK_NOTIFY_MAX || 25);
+const SLACK_ENABLE_DETAILS_MODAL = String(process.env.SLACK_ENABLE_DETAILS_MODAL || "false") === "true";
 
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
@@ -119,7 +120,8 @@ async function main(): Promise<void> {
     const sent = await sendSlackCandidates(run.thresholdMatches, {
       webhookUrl: SLACK_WEBHOOK_URL,
       threshold: run.threshold,
-      maxProfiles: SLACK_NOTIFY_MAX
+      maxProfiles: SLACK_NOTIFY_MAX,
+      enableDetailsModal: SLACK_ENABLE_DETAILS_MODAL
     });
     console.log(`Slack notification sent: ${sent.sent} matches (${sent.shown} shown).`);
   } else {
