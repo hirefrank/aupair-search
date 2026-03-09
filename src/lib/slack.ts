@@ -223,55 +223,69 @@ export async function sendSlackCandidates(
     const experience =
       typeof profile.experienceMonths === "number" ? `${profile.experienceMonths}m experience` : "experience ?";
 
-    const summaryLines = [
-      `${location} | ${age} | ${experience}`,
+    const currentLocation = formatRawValue(raw.currentLocation);
+    const imageUrl = typeof raw.profilePictureCfn === "string" ? raw.profilePictureCfn : "No picture available";
+
+    const headerLines = [
+      `*${name}*`,
+      `${location} | ${age} | ${experience} | ${currentLocation}`,
       `English ${englishLevel(profile)} | Arrival ${arrivalWindow(profile)}`,
       `Au Pair Number: ${typeof raw.auPairNumber === "string" && raw.auPairNumber.trim() ? raw.auPairNumber.trim() : "-"}`,
-      "--"
+      "",
+      imageUrl
     ];
 
-    const detailLines: string[] = [
+    const childcareLines = [
       `Approved Childcare Hours: ${formatRawValue(raw.approvedChildcareHours)}`,
       `Years Driving: ${formatRawValue(raw.yearsDriving)}`,
       `Driving Frequency: ${formatRawValue(raw.drivingFrequency)}`,
       `Preferred Ages: ${formatRawValue(raw.preferredAges)}`,
-      `Number Of Children Can Care For: ${formatRawValue(raw.numberOfChildrenCanCareFor)}`,
+      `Number Of Children Can Care For: ${formatRawValue(raw.numberOfChildrenCanCareFor)}`
+    ];
+
+    const profileLines = [
       `About Self And Interests: ${formatRawValue(raw.aboutSelfAndInterests)}`,
-      `Creativity Interests: ${formatRawValue(raw.creativityInterests)}`,
-      `Current Location: ${formatRawValue(raw.currentLocation)}`,
       `Food Preferences: ${formatRawValue(raw.foodPreferences)}`,
       `Gender Identity: ${formatRawValue(raw.genderIdentity)}`,
       `Home Country: ${formatRawValue(raw.homeCountry)}`,
       `Personality Traits: ${formatRawValue(raw.personalityTraits)}`,
+      `Creativity Interests: ${formatRawValue(raw.creativityInterests)}`,
       `Relaxing Interests: ${formatRawValue(raw.relaxingInterests)}`,
       `Social Interests: ${formatRawValue(raw.socialInterests)}`,
       `Sport Interests: ${formatRawValue(raw.sportInterests)}`
     ];
 
-    const detailChunks = chunkLines(detailLines, 2_800);
-    const blocks: unknown[] = [
-      {
+    const headerChunks = chunkLines(headerLines, 2_800);
+    const childcareChunks = chunkLines(childcareLines, 2_800);
+    const profileChunks = chunkLines(profileLines, 2_800);
+
+    const blocks: unknown[] = [];
+
+    for (const chunk of headerChunks) {
+      blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*${name}*\n${summaryLines.join("\n")}`
+          text: chunk
         }
-      },
-      {
-        type: "divider"
-      }
-    ];
-
-    const imageUrl = typeof raw.profilePictureCfn === "string" ? raw.profilePictureCfn : null;
-    if (imageUrl) {
-      blocks.push({
-        type: "image",
-        image_url: imageUrl,
-        alt_text: `${name} profile picture`
       });
     }
 
-    for (const chunk of detailChunks) {
+    blocks.push({ type: "divider" });
+
+    for (const chunk of childcareChunks) {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: chunk
+        }
+      });
+    }
+
+    blocks.push({ type: "divider" });
+
+    for (const chunk of profileChunks) {
       blocks.push({
         type: "section",
         text: {

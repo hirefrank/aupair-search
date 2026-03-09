@@ -24,6 +24,7 @@ type MatchCriteria = {
   minEnglishLevel: number;
   arrivalEarliest: Date | null;
   arrivalLatest: Date | null;
+  childAges: number[];
   requiredPets: string[];
   allowedDrivingFrequencies: string[];
   minDrivingYears: number;
@@ -50,6 +51,15 @@ function asCsvList(value: string | undefined, fallback: string[]): string[] {
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
+  return parsed.length ? parsed : fallback;
+}
+
+function asCsvNumberList(value: string | undefined, fallback: number[]): number[] {
+  if (!value) return fallback;
+  const parsed = value
+    .split(",")
+    .map((entry) => Number(entry.trim()))
+    .filter((n) => Number.isFinite(n) && n >= 0);
   return parsed.length ? parsed : fallback;
 }
 
@@ -85,6 +95,35 @@ function parseDrivingYears(value: unknown): number | null {
   if (singleMatch) return Number(singleMatch[1]);
 
   return null;
+}
+
+function preferredAgeIncludes(childAge: number, rangeLabel: string): boolean {
+  const raw = rangeLabel.trim().toLowerCase();
+  if (!raw) return false;
+
+  const rangeMatch = raw.match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (rangeMatch) {
+    const min = Number(rangeMatch[1]);
+    const max = Number(rangeMatch[2]);
+    return childAge >= min && childAge <= max;
+  }
+
+  const plusMatch = raw.match(/(\d+)\s*\+/);
+  if (plusMatch) {
+    return childAge >= Number(plusMatch[1]);
+  }
+
+  const underMatch = raw.match(/under\s*(\d+)/);
+  if (underMatch) {
+    return childAge < Number(underMatch[1]);
+  }
+
+  const exactMatch = raw.match(/^(\d+)\s*years?/);
+  if (exactMatch) {
+    return childAge === Number(exactMatch[1]);
+  }
+
+  return false;
 }
 
 function getEnglishLevel(profile: RankedProfile): number | null {
@@ -153,6 +192,18 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
     if (criteria.arrivalLatest && window.start > criteria.arrivalLatest) return false;
   }
 
+  if (criteria.childAges.length > 0) {
+    const preferredAges = Array.isArray(raw.preferredAges)
+      ? raw.preferredAges.filter((item): item is string => typeof item === "string")
+      : [];
+    if (preferredAges.length === 0) return false;
+
+    const childAgesOk = criteria.childAges.every((childAge) =>
+      preferredAges.some((rangeLabel) => preferredAgeIncludes(childAge, rangeLabel))
+    );
+    if (!childAgesOk) return false;
+  }
+
   if (criteria.requiredPets.length > 0) {
     const pets = Array.isArray(raw.preferredPets)
       ? raw.preferredPets
@@ -217,6 +268,7 @@ export async function runSearchPipeline(
     minEnglishLevel: asNumber(env.MATCH_MIN_ENGLISH_LEVEL, 6),
     arrivalEarliest: parseDate(env.MATCH_ARRIVAL_EARLIEST || "2026-06-01"),
     arrivalLatest: parseDate(env.MATCH_ARRIVAL_LATEST || "2026-07-31"),
+    childAges: asCsvNumberList(env.MATCH_CHILD_AGES, [3, 5]),
     requiredPets: asCsvList(env.MATCH_REQUIRED_PETS, ["dogs"]),
     allowedDrivingFrequencies: asCsvList(env.MATCH_ALLOWED_DRIVING_FREQUENCIES, ["daily", "weekly"]),
     minDrivingYears: asNumber(env.MATCH_MIN_DRIVING_YEARS, 1),

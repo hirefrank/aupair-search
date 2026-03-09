@@ -66,6 +66,7 @@ bun run worker:deploy
 - `bun run worker:dev` - remote Worker dev.
 - `bun run worker:deploy` - deploy Worker.
 - `bun run typecheck` - TypeScript check.
+- `bun test` - run tests.
 
 ## Match filters
 
@@ -77,6 +78,12 @@ Configured with env vars (defaults currently set to your request):
 - `MATCH_MIN_ENGLISH_LEVEL=6`
 - `MATCH_ARRIVAL_EARLIEST=2026-06-01`
 - `MATCH_ARRIVAL_LATEST=2026-07-31`
+- `MATCH_CHILD_AGES=3,5` (post-filter against Culture Care `Preferred Ages`)
+- `MATCH_REQUIRED_PETS=dogs`
+- `MATCH_ALLOWED_DRIVING_FREQUENCIES=daily,weekly`
+- `MATCH_MIN_DRIVING_YEARS=1`
+- `MATCH_REQUIRE_SWIMMING_SUPERVISION=true`
+- `MATCH_REQUIRE_LIVED_AWAY_FROM_HOME=true`
 
 ## Slack quick actions
 
@@ -92,7 +99,7 @@ Candidate Slack cards include a direct `⭐ Open in Culture Care and bookmark` l
 Optional local cron for rotating tokens into Worker secrets:
 
 ```bash
-0 */2 * * * CLOUDFLARE_ACCOUNT_ID=6034f1c5d23e5503f6573740480cf0d6 /home/frank/.local/share/mise/installs/bun/1.3.0/bin/bun --cwd /home/frank/Projects/aupair-search run sync:secrets
+0 */2 * * * CLOUDFLARE_ACCOUNT_ID=<your-account-id> /path/to/bun --cwd /path/to/aupair-search run sync:secrets
 ```
 
 ## Security
