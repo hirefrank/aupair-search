@@ -59,6 +59,9 @@ fi
 if [ -z "${SLACK_ACTION_TOKEN:-}" ]; then
   SLACK_ACTION_TOKEN="$(read_env_value "SLACK_ACTION_TOKEN" "$ENV_FILE")"
 fi
+if [ -z "${CULTURECARE_HOST_FAMILY_ID:-}" ]; then
+  CULTURECARE_HOST_FAMILY_ID="$(read_env_value "CULTURECARE_HOST_FAMILY_ID" "$ENV_FILE")"
+fi
 
 # Optional extractor command: must print JSON like
 # {"bearer":"...","refreshToken":"..."}
@@ -134,6 +137,11 @@ fi
 if [ -n "${SLACK_ACTION_TOKEN:-}" ]; then
   printf "%s" "$SLACK_ACTION_TOKEN" | bunx wrangler secret put SLACK_ACTION_TOKEN --config "$WRANGLER_CONFIG_FILE"
   echo "Updated SLACK_ACTION_TOKEN"
+fi
+
+if [ -n "${CULTURECARE_HOST_FAMILY_ID:-}" ]; then
+  printf "%s" "$CULTURECARE_HOST_FAMILY_ID" | bunx wrangler secret put CULTURECARE_HOST_FAMILY_ID --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated CULTURECARE_HOST_FAMILY_ID"
 fi
 
 echo "Secret sync complete"

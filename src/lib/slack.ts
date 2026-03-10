@@ -155,9 +155,18 @@ function availabilityLabel(profile: RankedProfile): string {
 
 function profilePhotoUrl(profile: RankedProfile): string {
   const raw = profile.raw as Record<string, unknown>;
-  const value = typeof raw.profilePictureCfn === "string" ? raw.profilePictureCfn.trim() : "";
-  if (!/^https?:\/\//i.test(value)) return "";
-  return value;
+
+  // CultureCare: profilePictureCfn (CloudFront URL)
+  // APIA: imageUrl (scraped from HTML)
+  const candidates = [raw.profilePictureCfn, raw.imageUrl];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  }
+
+  return "";
 }
 
 function detailsPayloadWithSizeLimit(payload: SlackCandidateDetails, maxLength = 1_900): SlackCandidateDetails {
@@ -223,6 +232,27 @@ function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number)
   };
 
   return JSON.stringify(detailsPayloadWithSizeLimit(details));
+}
+
+type BookmarkPayload = { v: 1; source: string; apId: string };
+
+function buildBookmarkPayload(profile: RankedProfile): string | null {
+  if (profile.source !== "culturecare" || !profile.id) return null;
+  return JSON.stringify({ v: 1, source: profile.source, apId: profile.id } satisfies BookmarkPayload);
+}
+
+export function parseBookmarkPayload(value: string | null | undefined): BookmarkPayload | null {
+  if (!value) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+  if (obj.v !== 1 || typeof obj.source !== "string" || typeof obj.apId !== "string") return null;
+  return { v: 1, source: obj.source, apId: obj.apId };
 }
 
 export function parseCandidateDetailsPayload(value: string | null | undefined): SlackCandidateDetails | null {
@@ -464,6 +494,19 @@ export async function sendSlackCandidates(
         },
         url: profile.profileUrl,
         action_id: `open_profile_${profile.id || name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`
+      });
+    }
+
+    const bookmarkValue = buildBookmarkPayload(profile);
+    if (bookmarkValue) {
+      actionElements.push({
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: ":bookmark: Bookmark"
+        },
+        action_id: "bookmark_candidate",
+        value: bookmarkValue
       });
     }
 

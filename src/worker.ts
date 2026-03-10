@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { fetchWithRetry } from "./lib/http.js";
 import { runSearchPipeline } from "./lib/searchPipeline.js";
+import { favoriteAuPair, getCultureCareBearerToken } from "./lib/culturecareGraphql.js";
 import {
   buildCandidateDetailsModal,
+  parseBookmarkPayload,
   parseCandidateDetailsPayload,
   sendCultureCareAuthAlert,
   sendSlackCandidates
@@ -27,6 +29,8 @@ type SlackActionsPayload = {
   token?: string;
   trigger_id?: string;
   actions?: SlackBlockAction[];
+  user?: { id?: string };
+  channel?: { id?: string };
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -111,6 +115,25 @@ function notificationKey(profile: RankedProfile): string {
   const name = (profile.name || "unknown").toLowerCase();
   const country = (profile.country || "unknown").toLowerCase();
   return `candidate:${profile.source}:${name}:${country}`;
+}
+
+async function sendEphemeral(botToken: string, channel: string, user: string, text: string): Promise<void> {
+  try {
+    await fetchWithRetry(
+      "https://slack.com/api/chat.postEphemeral",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${botToken}`,
+          "content-type": "application/json; charset=utf-8"
+        },
+        body: JSON.stringify({ channel, user, text })
+      },
+      { retries: 1, minDelayMs: 250, maxDelayMs: 1_000, timeoutMs: 5_000 }
+    );
+  } catch (error) {
+    console.error("Failed to send Slack ephemeral message", error);
+  }
 }
 
 function containsCultureCareAuthError(message: string): boolean {
@@ -300,6 +323,47 @@ app.post("/api/slack/actions", async (c) => {
   }
 
   const action = payload.actions[0];
+
+  if (action.action_id === "bookmark_candidate") {
+    const bookmark = parseBookmarkPayload(typeof action.value === "string" ? action.value : "");
+    if (!bookmark) return c.text("");
+
+    const hfId = env.CULTURECARE_HOST_FAMILY_ID || "";
+    const botToken = env.SLACK_BOT_TOKEN || "";
+    const userId = typeof payload.user?.id === "string" ? payload.user.id : "";
+    const channelId = typeof payload.channel?.id === "string" ? payload.channel.id : "";
+
+    if (!hfId) {
+      console.error("Missing CULTURECARE_HOST_FAMILY_ID for bookmark action");
+      return c.text("");
+    }
+
+    try {
+      const bearerToken = await getCultureCareBearerToken(env);
+      const graphqlEndpoint = env.CULTURECARE_GRAPHQL_ENDPOINT || undefined;
+      const result = await favoriteAuPair({
+        bearerToken,
+        apId: bookmark.apId,
+        hfId,
+        endpoint: graphqlEndpoint
+      });
+
+      if (botToken && userId && channelId) {
+        const text = result.ok
+          ? ":bookmark: Bookmarked!"
+          : `:warning: Bookmark failed: ${result.error || "unknown error"}`;
+        await sendEphemeral(botToken, channelId, userId, text);
+      }
+    } catch (error) {
+      console.error("Bookmark action failed", error);
+      if (botToken && userId && channelId) {
+        await sendEphemeral(botToken, channelId, userId, ":x: Bookmark failed unexpectedly.");
+      }
+    }
+
+    return c.text("");
+  }
+
   if (action.action_id !== "view_candidate_details") {
     return c.text("");
   }

@@ -172,15 +172,17 @@ export class CultureCareAdapter {
             ? profile.experienceMonths
             : null;
 
+    const profileId = typeof profile.id === "string" ? profile.id : null;
+
     return {
       source: "culturecare",
-      id: typeof profile.id === "string" ? profile.id : null,
+      id: profileId,
       name: normalizeName(profile.firstName, profile.lastName, profile.name || profile.auPairName),
       country: normalizeCountry(profile),
       age,
       languages,
       experienceMonths,
-      profileUrl: typeof profile.profileUrl === "string" ? profile.profileUrl : null,
+      profileUrl: null,
       raw: profile
     };
   }
