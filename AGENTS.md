@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -36,9 +36,10 @@ Au pair search aggregator that runs as both a local CLI tool and a Cloudflare Wo
 ```
 Adapters (parallel)  →  Merge & dedupe  →  Score (PREFERENCES_JSON)
     ├ CultureCare          →  Hard filters (age, gender, English, arrival, pets, driving, etc.)
-    └ APIA                     →  Threshold check (MATCH_SCORE_THRESHOLD)
-                                    →  KV dedup (Worker only)
-                                        →  Slack notifications
+    └ APIA                     →  Maturity gate (optional, for candidates below MATCH_MIN_AGE)
+                                    →  Threshold check (MATCH_SCORE_THRESHOLD)
+                                        →  KV dedup (Worker only)
+                                            →  Slack notifications
 ```
 
 ### Key modules

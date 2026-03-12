@@ -80,6 +80,7 @@ Configured with env vars (defaults currently set to your request):
 
 - `MATCH_SCORE_THRESHOLD=60`
 - `MATCH_MIN_AGE=22`
+- `MATCH_MIN_AGE_MATURE=21` (optional maturity gate — allows candidates this age if they pass maturity checks; set to `0` or omit to disable)
 - `MATCH_REQUIRE_FEMALE=true`
 - `MATCH_MIN_ENGLISH_LEVEL=6`
 - `MATCH_ARRIVAL_EARLIEST=2026-06-01`
