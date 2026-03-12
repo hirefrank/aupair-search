@@ -180,22 +180,34 @@ function getArrivalWindow(profile: RankedProfile): { start: Date | null; end: Da
 function profileTextLower(profile: RankedProfile): string {
   const raw = profile.raw as Record<string, unknown>;
   const parts: string[] = [];
+  // CultureCare fields
   if (typeof raw.aboutSelfAndInterests === "string") parts.push(raw.aboutSelfAndInterests);
   if (typeof raw.summaryText === "string") parts.push(raw.summaryText);
-  if (raw.detail && typeof raw.detail === "object") {
-    const detail = raw.detail as Record<string, unknown>;
-    if (typeof detail.summaryText === "string") parts.push(detail.summaryText);
-    if (typeof detail.title === "string") parts.push(detail.title);
-  }
   if (Array.isArray(raw.personalityTraits)) {
     for (const trait of raw.personalityTraits) {
       if (typeof trait === "string") parts.push(trait);
     }
   }
+  // APIA detail fields
+  if (raw.detail && typeof raw.detail === "object") {
+    const detail = raw.detail as Record<string, unknown>;
+    if (typeof detail.summaryText === "string") parts.push(detail.summaryText);
+    if (typeof detail.title === "string") parts.push(detail.title);
+  }
   return parts.join(" ").toLowerCase();
 }
 
-function passesMaturityGate(profile: RankedProfile, gate: MaturityGate): boolean {
+/** @internal Exported for testing */
+export function matchesWordBoundary(text: string, keyword: string): boolean {
+  const pattern = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+  return pattern.test(text);
+}
+
+/** @internal Exported for testing */
+export { type MaturityGate };
+
+/** @internal Exported for testing */
+export function passesMaturityGate(profile: RankedProfile, gate: MaturityGate): boolean {
   const raw = profile.raw as Record<string, unknown>;
   let signals = 0;
 
@@ -207,9 +219,10 @@ function passesMaturityGate(profile: RankedProfile, gate: MaturityGate): boolean
   const education = typeof raw.educationLevel === "string" ? raw.educationLevel.toLowerCase() : "";
   if (gate.educationKeywords.some((kw) => education.includes(kw))) signals++;
 
-  // Signal 3: Profile text or traits contain maturity keywords
+  // Signal 3: Profile text or traits contain maturity keywords (require 2+ matches)
   const text = profileTextLower(profile);
-  if (gate.maturityKeywords.some((kw) => text.includes(kw))) signals++;
+  const keywordHits = gate.maturityKeywords.filter((kw) => matchesWordBoundary(text, kw)).length;
+  if (keywordHits >= 2) signals++;
 
   return signals >= gate.requiredSignals;
 }
@@ -335,7 +348,7 @@ export async function runSearchPipeline(
             "professional",
             "dedicated"
           ]),
-          requiredSignals: asNumber(env.MATCH_MATURITY_REQUIRED_SIGNALS, 2)
+          requiredSignals: Math.max(1, asNumber(env.MATCH_MATURITY_REQUIRED_SIGNALS, 2))
         }
       : null;
 
