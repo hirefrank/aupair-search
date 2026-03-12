@@ -18,6 +18,14 @@ export type SearchRunResult = {
   preferences: Preferences | null;
 };
 
+type MaturityGate = {
+  minAge: number;
+  minExperienceMonths: number;
+  educationKeywords: string[];
+  maturityKeywords: string[];
+  requiredSignals: number;
+};
+
 type MatchCriteria = {
   minAge: number;
   requireFemale: boolean;
@@ -30,6 +38,7 @@ type MatchCriteria = {
   minDrivingYears: number;
   requireSwimmingSupervision: boolean;
   requireLivedAwayFromHome: boolean;
+  maturityGate: MaturityGate | null;
 };
 
 function asBoolean(value: string | undefined, defaultValue: boolean): boolean {
@@ -168,11 +177,52 @@ function getArrivalWindow(profile: RankedProfile): { start: Date | null; end: Da
   return { start: null, end: null };
 }
 
+function profileTextLower(profile: RankedProfile): string {
+  const raw = profile.raw as Record<string, unknown>;
+  const parts: string[] = [];
+  if (typeof raw.aboutSelfAndInterests === "string") parts.push(raw.aboutSelfAndInterests);
+  if (typeof raw.summaryText === "string") parts.push(raw.summaryText);
+  if (raw.detail && typeof raw.detail === "object") {
+    const detail = raw.detail as Record<string, unknown>;
+    if (typeof detail.summaryText === "string") parts.push(detail.summaryText);
+    if (typeof detail.title === "string") parts.push(detail.title);
+  }
+  if (Array.isArray(raw.personalityTraits)) {
+    for (const trait of raw.personalityTraits) {
+      if (typeof trait === "string") parts.push(trait);
+    }
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+function passesMaturityGate(profile: RankedProfile, gate: MaturityGate): boolean {
+  const raw = profile.raw as Record<string, unknown>;
+  let signals = 0;
+
+  // Signal 1: Sufficient childcare experience
+  const experienceMonths = typeof profile.experienceMonths === "number" ? profile.experienceMonths : 0;
+  if (experienceMonths >= gate.minExperienceMonths) signals++;
+
+  // Signal 2: Education level suggests college/university
+  const education = typeof raw.educationLevel === "string" ? raw.educationLevel.toLowerCase() : "";
+  if (gate.educationKeywords.some((kw) => education.includes(kw))) signals++;
+
+  // Signal 3: Profile text or traits contain maturity keywords
+  const text = profileTextLower(profile);
+  if (gate.maturityKeywords.some((kw) => text.includes(kw))) signals++;
+
+  return signals >= gate.requiredSignals;
+}
+
 function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boolean {
   const raw = profile.raw as Record<string, unknown>;
 
-  const ageOk = typeof profile.age === "number" && profile.age >= criteria.minAge;
-  if (!ageOk) return false;
+  // Age check with maturity gate for candidates between maturityGate.minAge and criteria.minAge
+  if (typeof profile.age !== "number") return false;
+  if (profile.age < (criteria.maturityGate?.minAge ?? criteria.minAge)) return false;
+  if (profile.age < criteria.minAge) {
+    if (!criteria.maturityGate || !passesMaturityGate(profile, criteria.maturityGate)) return false;
+  }
 
   const femaleOk = !criteria.requireFemale || isLikelyFemale(profile);
   if (!femaleOk) return false;
@@ -262,8 +312,35 @@ export async function runSearchPipeline(
   const maxPages = options.maxPages ?? asNumber(env.MAX_PAGES, 200);
   const prefs = parseJsonSafe<Preferences | null>(env.PREFERENCES_JSON, null);
   const threshold = asNumber(env.MATCH_SCORE_THRESHOLD, 0);
+  const mainMinAge = asNumber(env.MATCH_MIN_AGE, 22);
+  const maturityMinAge = asNumber(env.MATCH_MIN_AGE_MATURE, 0);
+  const maturityGate: MaturityGate | null =
+    maturityMinAge > 0 && maturityMinAge < mainMinAge
+      ? {
+          minAge: maturityMinAge,
+          minExperienceMonths: asNumber(env.MATCH_MATURITY_MIN_EXPERIENCE_MONTHS, 18),
+          educationKeywords: asCsvList(env.MATCH_MATURITY_EDUCATION_KEYWORDS, [
+            "university",
+            "college",
+            "bachelor",
+            "master",
+            "degree"
+          ]),
+          maturityKeywords: asCsvList(env.MATCH_MATURITY_KEYWORDS, [
+            "responsible",
+            "independent",
+            "organized",
+            "mature",
+            "reliable",
+            "professional",
+            "dedicated"
+          ]),
+          requiredSignals: asNumber(env.MATCH_MATURITY_REQUIRED_SIGNALS, 2)
+        }
+      : null;
+
   const criteria: MatchCriteria = {
-    minAge: asNumber(env.MATCH_MIN_AGE, 22),
+    minAge: mainMinAge,
     requireFemale: asBoolean(env.MATCH_REQUIRE_FEMALE, true),
     minEnglishLevel: asNumber(env.MATCH_MIN_ENGLISH_LEVEL, 6),
     arrivalEarliest: parseDate(env.MATCH_ARRIVAL_EARLIEST || "2026-06-01"),
@@ -273,7 +350,8 @@ export async function runSearchPipeline(
     allowedDrivingFrequencies: asCsvList(env.MATCH_ALLOWED_DRIVING_FREQUENCIES, ["daily", "weekly"]),
     minDrivingYears: asNumber(env.MATCH_MIN_DRIVING_YEARS, 1),
     requireSwimmingSupervision: asBoolean(env.MATCH_REQUIRE_SWIMMING_SUPERVISION, true),
-    requireLivedAwayFromHome: asBoolean(env.MATCH_REQUIRE_LIVED_AWAY_FROM_HOME, true)
+    requireLivedAwayFromHome: asBoolean(env.MATCH_REQUIRE_LIVED_AWAY_FROM_HOME, true),
+    maturityGate
   };
 
   const cultureCare = new CultureCareAdapter(env);
