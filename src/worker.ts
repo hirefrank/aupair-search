@@ -6,6 +6,7 @@ import {
   buildCandidateDetailsModal,
   parseBookmarkPayload,
   parseCandidateDetailsPayload,
+  sendApiaAuthAlert,
   sendCultureCareAuthAlert,
   sendSlackCandidates
 } from "./lib/slack.js";
@@ -140,6 +141,10 @@ function containsCultureCareAuthError(message: string): boolean {
   return /culture\s*care|cognito|refresh token|bearer|auth|unauthorized|401/i.test(message);
 }
 
+function containsApiaAuthError(message: string): boolean {
+  return /apia.*(?:logged out|unauthorized|forgery token|session)|apia.*401/i.test(message);
+}
+
 async function shouldSendTtlKey(
   store: Bindings["MATCH_NOTIFICATIONS"],
   key: string,
@@ -177,6 +182,27 @@ async function maybeSendCultureCareAuthAlert(
     reauthUrl,
     errorMessage
   });
+}
+
+async function maybeSendApiaAuthAlert(
+  bindings: Bindings,
+  env: NodeJS.ProcessEnv,
+  errorMessage: string
+): Promise<void> {
+  if (!containsApiaAuthError(errorMessage)) return;
+
+  const webhookUrl = env.SLACK_WEBHOOK_URL || "";
+  if (!webhookUrl) return;
+
+  const ttlHours = asNumber(env.AUTH_ALERT_TTL_HOURS, 12);
+  const shouldSend = await shouldSendTtlKey(
+    bindings.MATCH_NOTIFICATIONS,
+    "alert:apia-auth",
+    ttlHours * 60 * 60
+  );
+  if (!shouldSend) return;
+
+  await sendApiaAuthAlert({ webhookUrl, errorMessage });
 }
 
 async function filterAlreadyNotified(
@@ -238,12 +264,19 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     run = await runSearchPipeline(env, { maxPages });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await maybeSendCultureCareAuthAlert(bindings, env, message);
+    await Promise.all([
+      maybeSendCultureCareAuthAlert(bindings, env, message),
+      maybeSendApiaAuthAlert(bindings, env, message)
+    ]);
     throw error;
   }
 
   if (run.bySource.culturecare.skipped && run.bySource.culturecare.reason) {
     await maybeSendCultureCareAuthAlert(bindings, env, run.bySource.culturecare.reason);
+  }
+
+  if (run.bySource.apia.skipped && run.bySource.apia.reason) {
+    await maybeSendApiaAuthAlert(bindings, env, run.bySource.apia.reason);
   }
 
   const webhookUrl = env.SLACK_WEBHOOK_URL || "";

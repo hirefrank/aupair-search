@@ -135,9 +135,27 @@ function preferredAgeIncludes(childAge: number, rangeLabel: string): boolean {
   return false;
 }
 
-function getEnglishLevel(profile: RankedProfile): number | null {
+function rawDetail(profile: RankedProfile): Record<string, unknown> | null {
   const raw = profile.raw as Record<string, unknown>;
-  const english = typeof raw.englishProficiencyLevel === "string" ? raw.englishProficiencyLevel : "";
+  if (raw.detail && typeof raw.detail === "object") return raw.detail as Record<string, unknown>;
+  return null;
+}
+
+function rawField(profile: RankedProfile, field: string): unknown {
+  const raw = profile.raw as Record<string, unknown>;
+  if (raw[field] !== undefined) return raw[field];
+  const detail = rawDetail(profile);
+  if (detail && detail[field] !== undefined) return detail[field];
+  return undefined;
+}
+
+function rawStringField(profile: RankedProfile, field: string): string {
+  const value = rawField(profile, field);
+  return typeof value === "string" ? value : "";
+}
+
+function getEnglishLevel(profile: RankedProfile): number | null {
+  const english = rawStringField(profile, "englishProficiencyLevel");
   if (!english) return null;
   const match = english.match(/level\s*(\d+)/i);
   if (!match) return null;
@@ -146,10 +164,8 @@ function getEnglishLevel(profile: RankedProfile): number | null {
 }
 
 function isLikelyFemale(profile: RankedProfile): boolean {
-  const raw = profile.raw as Record<string, unknown>;
-  if (typeof raw.genderIdentity === "string") {
-    return raw.genderIdentity.trim().toLowerCase().startsWith("f");
-  }
+  const gender = rawStringField(profile, "genderIdentity");
+  if (gender) return gender.trim().toLowerCase().startsWith("f");
   return false;
 }
 
@@ -240,13 +256,11 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
   const femaleOk = !criteria.requireFemale || isLikelyFemale(profile);
   if (!femaleOk) return false;
 
-  const englishOk =
-    criteria.minEnglishLevel <= 0 ||
-    (() => {
-      const level = getEnglishLevel(profile);
-      return level !== null && level >= criteria.minEnglishLevel;
-    })();
-  if (!englishOk) return false;
+  if (criteria.minEnglishLevel > 0) {
+    const level = getEnglishLevel(profile);
+    // When level is available, enforce it; when unavailable (e.g. APIA), skip
+    if (level !== null && level < criteria.minEnglishLevel) return false;
+  }
 
   if (criteria.arrivalEarliest || criteria.arrivalLatest) {
     const window = getArrivalWindow(profile);
@@ -256,45 +270,78 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
   }
 
   if (criteria.childAges.length > 0) {
-    const preferredAges = Array.isArray(raw.preferredAges)
-      ? raw.preferredAges.filter((item): item is string => typeof item === "string")
+    const rawPreferred = rawField(profile, "preferredAges");
+    const preferredAges = Array.isArray(rawPreferred)
+      ? rawPreferred.filter((item): item is string => typeof item === "string")
       : [];
-    if (preferredAges.length === 0) return false;
-
-    const childAgesOk = criteria.childAges.every((childAge) =>
-      preferredAges.some((rangeLabel) => preferredAgeIncludes(childAge, rangeLabel))
-    );
-    if (!childAgesOk) return false;
+    // APIA doesn't provide preferredAges — skip the check rather than rejecting
+    if (preferredAges.length > 0) {
+      const childAgesOk = criteria.childAges.every((childAge) =>
+        preferredAges.some((rangeLabel) => preferredAgeIncludes(childAge, rangeLabel))
+      );
+      if (!childAgesOk) return false;
+    }
   }
 
   if (criteria.requiredPets.length > 0) {
-    const pets = Array.isArray(raw.preferredPets)
-      ? raw.preferredPets
-          .map((pet) => (typeof pet === "string" ? pet.trim().toLowerCase() : ""))
-          .filter(Boolean)
-      : [];
-    const petsOk = criteria.requiredPets.every((requiredPet) => pets.includes(requiredPet));
-    if (!petsOk) return false;
+    const rawPets = rawField(profile, "preferredPets");
+    if (Array.isArray(rawPets)) {
+      const pets = rawPets
+        .map((pet) => (typeof pet === "string" ? pet.trim().toLowerCase() : ""))
+        .filter(Boolean);
+      const petsOk = criteria.requiredPets.every((requiredPet) => pets.includes(requiredPet));
+      if (!petsOk) return false;
+    }
+    // APIA: check petAllergies from detail — if they have dog allergies, reject
+    const detail = rawDetail(profile);
+    if (detail && typeof detail.petAllergies === "string") {
+      const allergies = detail.petAllergies.toLowerCase();
+      if (criteria.requiredPets.includes("dogs") && allergies.includes("dog")) return false;
+    }
   }
 
   if (criteria.allowedDrivingFrequencies.length > 0) {
-    const drivingFrequency =
-      typeof raw.drivingFrequency === "string" ? raw.drivingFrequency.trim().toLowerCase() : "";
-    const frequencyOk = drivingFrequency && criteria.allowedDrivingFrequencies.includes(drivingFrequency);
-    if (!frequencyOk) return false;
+    const drivingFrequency = rawStringField(profile, "drivingFrequency").trim().toLowerCase();
+    // Skip check when field is unavailable (avoid rejecting profiles missing the data)
+    if (drivingFrequency) {
+      const frequencyOk = criteria.allowedDrivingFrequencies.includes(drivingFrequency);
+      if (!frequencyOk) return false;
+    }
   }
 
   if (criteria.minDrivingYears > 0) {
-    const yearsDriving = parseDrivingYears(raw.yearsDriving);
-    if (yearsDriving === null || yearsDriving < criteria.minDrivingYears) return false;
+    let yearsDriving = parseDrivingYears(raw.yearsDriving);
+    // APIA fallback: compute from driverLicenseReceivedOn
+    if (yearsDriving === null) {
+      const detail = rawDetail(profile);
+      if (detail && typeof detail.driverLicenseReceivedOn === "string") {
+        const dt = new Date(detail.driverLicenseReceivedOn);
+        if (Number.isFinite(dt.getTime())) {
+          yearsDriving = Math.floor((Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+        }
+      }
+    }
+    // Skip check when field is unavailable
+    if (yearsDriving !== null && yearsDriving < criteria.minDrivingYears) return false;
   }
 
   if (criteria.requireSwimmingSupervision) {
-    if (raw.okToSuperviseSwimmingChildren !== true) return false;
+    // CultureCare: boolean okToSuperviseSwimmingChildren
+    // APIA: detail.swimmer is a string like "Yes" / "No"
+    const ccSwim = rawField(profile, "okToSuperviseSwimmingChildren");
+    if (ccSwim === false) return false;
+    if (ccSwim === undefined) {
+      const detail = rawDetail(profile);
+      if (detail && typeof detail.swimmer === "string") {
+        if (/^no$/i.test(detail.swimmer.trim())) return false;
+      }
+    }
   }
 
   if (criteria.requireLivedAwayFromHome) {
-    if (raw.livedAwayFromHome !== true) return false;
+    // CultureCare: boolean livedAwayFromHome
+    // APIA: not available — skip rather than reject
+    if (raw.livedAwayFromHome === false) return false;
   }
 
   return true;
