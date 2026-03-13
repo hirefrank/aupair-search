@@ -217,6 +217,12 @@ async function markNotified(
   );
 }
 
+/** @internal Exported for testing */
+export function keysToMarkNotified(keys: string[], notifiedMatches: number): string[] {
+  if (notifiedMatches <= 0) return [];
+  return keys.slice(0, notifiedMatches);
+}
+
 async function runScheduledSearch(bindings: Bindings): Promise<{
   totalProfiles: number;
   threshold: number;
@@ -267,8 +273,9 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
       enableDetailsModal
     });
     notifiedMatches = sent.sent;
-    if (!skipKvWrites && freshKeys.length) {
-      await markNotified(freshKeys, bindings.MATCH_NOTIFICATIONS, ttlDays);
+    const keysToWrite = keysToMarkNotified(freshKeys, notifiedMatches);
+    if (!skipKvWrites && keysToWrite.length) {
+      await markNotified(keysToWrite, bindings.MATCH_NOTIFICATIONS, ttlDays);
     }
   }
 
