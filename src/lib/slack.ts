@@ -49,6 +49,8 @@ type SlackCandidateDetails = {
   profileUrl: string;
 };
 
+const CULTURECARE_HOME_URL = "https://hostfamily.culturalcare.com/#/home";
+
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   if (maxLength <= 1) return value.slice(0, maxLength);
@@ -528,6 +530,16 @@ export async function sendSlackCandidates(
         },
         url: profile.profileUrl,
         action_id: `open_profile_${profile.id || name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`
+      });
+    } else if (profile.source === "culturecare") {
+      actionElements.push({
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: "Open Site"
+        },
+        url: CULTURECARE_HOME_URL,
+        action_id: `open_site_${profile.id || name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`
       });
     }
 
