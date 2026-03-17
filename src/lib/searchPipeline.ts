@@ -156,6 +156,11 @@ function rawStringField(profile: RankedProfile, field: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function rawBooleanField(profile: RankedProfile, field: string): boolean | null {
+  const value = rawField(profile, field);
+  return typeof value === "boolean" ? value : null;
+}
+
 function sourceOf(profile: RankedProfile): MatchableSource {
   return profile.source === "apia" ? "apia" : "culturecare";
 }
@@ -335,7 +340,10 @@ export function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria)
   if (criteria.allowedDrivingFrequencies.length > 0) {
     const drivingFrequency = rawStringField(profile, "drivingFrequency").trim().toLowerCase();
     if (source === "culturecare" && !drivingFrequency) return false;
-    if (drivingFrequency) {
+    if (source === "apia") {
+      const canDrive = rawBooleanField(profile, "driver");
+      if (canDrive === false) return false;
+    } else if (drivingFrequency) {
       const frequencyOk = criteria.allowedDrivingFrequencies.includes(drivingFrequency);
       if (!frequencyOk) return false;
     }

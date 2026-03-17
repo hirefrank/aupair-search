@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { getApiaRequestVerificationToken } from "./lib/apiaFavorites.js";
 import {
   containsApiaAuthError,
   containsCultureCareAuthError,
@@ -24,5 +25,15 @@ describe("keysToMarkNotified", () => {
   });
   test("caps at the available key count", () => {
     expect(keysToMarkNotified(["a", "b"], 5)).toEqual(["a", "b"]);
+  });
+});
+
+describe("getApiaRequestVerificationToken", () => {
+  test("reads the anti-forgery token from the cookie header", () => {
+    expect(getApiaRequestVerificationToken("foo=1; __RequestVerificationToken=abc123; bar=2")).toBe("abc123");
+  });
+
+  test("returns null when the token cookie is missing", () => {
+    expect(getApiaRequestVerificationToken("foo=1; bar=2")).toBeNull();
   });
 });

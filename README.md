@@ -52,7 +52,7 @@ Then sync secrets to Cloudflare:
 bun run sync:secrets
 ```
 
-`sync:secrets` will automatically try to extract a fresh Culture Care bearer token from your local Chrome/Chromium profile when `CULTURECARE_BEARER` is not already set.
+`sync:secrets` will automatically try to extract a fresh Culture Care bearer token and a fresh APIA cookie from your local Chrome/Chromium profile, then update `.env` and sync those values to Cloudflare.
 
 ## Deploy
 
