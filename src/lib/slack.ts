@@ -51,6 +51,58 @@ type SlackCandidateDetails = {
 
 const CULTURECARE_HOME_URL = "https://hostfamily.culturalcare.com/#/home";
 
+type SlackDisplaySummary = {
+  location: string;
+  age: string;
+  experience: string;
+  english: string;
+  arrival: string;
+  availability: string;
+};
+
+const COUNTRY_CODE_BY_NAME: Record<string, string> = {
+  argentina: "AR",
+  austria: "AT",
+  belgium: "BE",
+  bolivia: "BO",
+  brazil: "BR",
+  canada: "CA",
+  chile: "CL",
+  china: "CN",
+  colombia: "CO",
+  "costa rica": "CR",
+  croatia: "HR",
+  "czech republic": "CZ",
+  denmark: "DK",
+  "dominican republic": "DO",
+  ecuador: "EC",
+  "el salvador": "SV",
+  finland: "FI",
+  france: "FR",
+  germany: "DE",
+  guatemala: "GT",
+  honduras: "HN",
+  hungary: "HU",
+  italy: "IT",
+  japan: "JP",
+  mexico: "MX",
+  netherlands: "NL",
+  nicaragua: "NI",
+  norway: "NO",
+  panama: "PA",
+  paraguay: "PY",
+  peru: "PE",
+  poland: "PL",
+  romania: "RO",
+  "south africa": "ZA",
+  spain: "ES",
+  sweden: "SE",
+  switzerland: "CH",
+  thailand: "TH",
+  turkey: "TR",
+  uruguay: "UY"
+};
+
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   if (maxLength <= 1) return value.slice(0, maxLength);
@@ -115,12 +167,39 @@ function rawStringField(profile: RankedProfile, field: string): string {
   return "";
 }
 
-function englishLevel(profile: RankedProfile): string {
-  const level = rawStringField(profile, "englishProficiencyLevel");
-  if (level) return level;
-  // APIA: no structured English level; check for language info in detail text
-  if (profile.source === "apia") return "N/A";
-  return "Unknown";
+function normalizeCountryCode(country: string | null | undefined): string {
+  const value = (country || "").trim();
+  if (!value) return "";
+  if (/^[A-Za-z]{2}$/.test(value)) return value.toUpperCase();
+  return COUNTRY_CODE_BY_NAME[value.toLowerCase()] || "";
+}
+
+function cleanApiaNativeLanguage(value: string): string {
+  return value.replace(/\s+Swimming Level\b[\s\S]*$/i, "").trim();
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function englishDisplay(profile: RankedProfile): string {
+  const structured = rawStringField(profile, "englishProficiencyLevel");
+  if (structured) return structured.replace(/^Level\s*/i, "Level ");
+
+  const detail = rawDetail(profile);
+  const summaryText = detail && typeof detail.summaryText === "string" ? detail.summaryText : "";
+  const match = summaryText.match(/English Proficiency Test Score\s+.*? scored the ([A-Za-z ]+?) level\b/i);
+  if (match) return titleCaseWords(match[1]);
+
+  const nativeLanguage = rawStringField(profile, "nativeLanguage");
+  const cleanedNative = nativeLanguage ? cleanApiaNativeLanguage(nativeLanguage) : "";
+  if (/^english$/i.test(cleanedNative)) return "Native English";
+
+  return "English unknown";
 }
 
 function formatDate(value: string | null): string | null {
@@ -147,17 +226,21 @@ function arrivalWindow(profile: RankedProfile): string {
   const earliest = typeof raw.earliestTravelDate === "string" ? raw.earliestTravelDate : null;
   const latest = typeof raw.latestTravelDate === "string" ? raw.latestTravelDate : null;
   if (earliest || latest) {
-    const from = formatDate(earliest) || "?";
+    const from = formatDate(earliest) || "Arrival unknown";
     const to = formatDate(latest) || from;
-    return `${from} -> ${to}`;
+    return `${from} - ${to}`;
   }
-  if (typeof raw.startWindow === "string" && raw.startWindow.trim()) return raw.startWindow;
+  if (typeof raw.startWindow === "string" && raw.startWindow.trim()) {
+    return raw.startWindow.trim().replace(/\s*-\s*/g, " - ");
+  }
   // APIA: detail.arrivalWindow
   const detail = rawDetail(profile);
   if (detail && typeof detail.arrivalWindow === "string" && detail.arrivalWindow.trim()) {
-    return detail.arrivalWindow;
+    const match = detail.arrivalWindow.match(/(\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{4})/);
+    if (match) return `${match[1]} - ${match[2]}`;
+    return detail.arrivalWindow.trim();
   }
-  return "Unknown";
+  return "Arrival unknown";
 }
 
 function availabilityLabel(profile: RankedProfile): string {
@@ -174,6 +257,36 @@ function availabilityLabel(profile: RankedProfile): string {
   }
 
   return subStatus || "Available";
+}
+
+function experienceDisplay(profile: RankedProfile): string {
+  if (typeof profile.experienceMonths === "number") return `${profile.experienceMonths}m experience`;
+
+  const rawHours = rawFieldValue(profile, "approvedChildcareHours", "childcareHours");
+  if (typeof rawHours === "number" && Number.isFinite(rawHours) && rawHours > 0) {
+    return `${rawHours}h childcare`;
+  }
+
+  return "Experience unknown";
+}
+
+function locationDisplay(profile: RankedProfile): string {
+  const country = safe(profile.country, "Unknown");
+  const countryCode = normalizeCountryCode(profile.country);
+  const flag = countryFlag(countryCode);
+  if (flag && countryCode) return `${flag} ${countryCode}`;
+  return country;
+}
+
+function buildSlackDisplaySummary(profile: RankedProfile): SlackDisplaySummary {
+  return {
+    location: locationDisplay(profile),
+    age: typeof profile.age === "number" ? `${profile.age}y` : "Age unknown",
+    experience: experienceDisplay(profile),
+    english: englishDisplay(profile),
+    arrival: arrivalWindow(profile),
+    availability: availabilityLabel(profile)
+  };
 }
 
 function profilePhotoUrl(profile: RankedProfile): string {
@@ -245,8 +358,8 @@ function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number)
     country: safe(profile.country, "Unknown"),
     age: typeof profile.age === "number" ? `${profile.age} years` : "Unknown",
     experience:
-      typeof profile.experienceMonths === "number" ? `${profile.experienceMonths} months` : "Unknown",
-    english: englishLevel(profile),
+      typeof profile.experienceMonths === "number" ? `${profile.experienceMonths} months` : asDetailsString(rawFieldValue(profile, "approvedChildcareHours", "childcareHours"), 64, "Unknown"),
+    english: englishDisplay(profile),
     arrival: arrivalWindow(profile),
     availability: availabilityLabel(profile),
     score: threshold > 0 ? String(profile.score ?? 0) : "Not scored",
@@ -492,18 +605,13 @@ export async function sendSlackCandidates(
 
   for (const profile of shownMatches) {
     const name = safe(profile.name, "Unnamed candidate");
-    const age = typeof profile.age === "number" ? `${profile.age}y` : "age ?";
-    const countryCode = safe(profile.country, "");
-    const flag = countryFlag(countryCode);
-    const location = [flag, countryCode].filter(Boolean).join(" ") || "location ?";
-    const experience =
-      typeof profile.experienceMonths === "number" ? `${profile.experienceMonths}m experience` : "experience ?";
+    const display = buildSlackDisplaySummary(profile);
     const scorePart = threshold > 0 ? ` | score ${profile.score ?? 0}` : "";
 
     const summaryLines = [
-      `${location} | ${age} | ${experience}${scorePart}`,
-      `English ${englishLevel(profile)} | Arrival ${arrivalWindow(profile)}`,
-      availabilityLabel(profile)
+      `${display.location} | ${display.age} | ${display.experience}${scorePart}`,
+      `English ${display.english} | Arrival ${display.arrival}`,
+      display.availability
     ];
 
     const actionElements: Record<string, unknown>[] = [];

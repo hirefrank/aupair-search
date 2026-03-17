@@ -47,6 +47,11 @@ async function writeRunSnapshot(
   effectiveThreshold: number,
   scoreThresholdApplied: boolean
 ): Promise<void> {
+  const excludedCountries = (process.env.MATCH_EXCLUDED_COUNTRIES || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
   await Promise.all([
     writeJson(path.join(runDir, "aupairs-merged.json"), merged),
     fs.writeFile(path.join(runDir, "aupairs-merged.csv"), toCsv(merged)),
@@ -62,6 +67,7 @@ async function writeRunSnapshot(
       matchCriteria: {
         minAge: Number(process.env.MATCH_MIN_AGE || 22),
         requireFemale: String(process.env.MATCH_REQUIRE_FEMALE || "true") === "true",
+        excludedCountries,
         minEnglishLevel: Number(process.env.MATCH_MIN_ENGLISH_LEVEL || 6),
         arrivalEarliest: process.env.MATCH_ARRIVAL_EARLIEST || "2026-06-01",
         arrivalLatest: process.env.MATCH_ARRIVAL_LATEST || "2026-07-31"

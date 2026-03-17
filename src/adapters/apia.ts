@@ -51,6 +51,20 @@ function extractChildcareHours(text: string): number | null {
   return null;
 }
 
+function cleanApiaField(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value
+    .replace(/\s+(Swimming Level|English Proficiency Test Score)\b[\s\S]*$/i, "")
+    .replace(/\s+The match term is[\s\S]*$/i, "")
+    .trim();
+  return trimmed || null;
+}
+
+function extractEnglishLevel(text: string): string | null {
+  const match = text.match(/English Proficiency Test Score\s+.*? scored the ([A-Za-z ]+?) level\b/i);
+  return match ? match[1].trim() : null;
+}
+
 export class ApiaAdapter {
   private baseUrl: string;
   private cookie: string;
@@ -235,6 +249,7 @@ export class ApiaAdapter {
     const infantQualified = extractField(bodyText, "Infant Qualified");
     const arrivalWindow = extractField(bodyText, "Arrival Window");
     const childcareHours = extractChildcareHours(bodyText);
+    const englishProficiencyLevel = extractEnglishLevel(bodyText);
 
     return {
       title,
@@ -243,14 +258,15 @@ export class ApiaAdapter {
       driver: parseYesNo(driverValue),
       drivingFrequency,
       driverLicenseReceivedOn,
-      nativeLanguage,
+      nativeLanguage: cleanApiaField(nativeLanguage),
       genderIdentity,
       petAllergies,
       swimmer,
       livedAwayFromHome: parseYesNo(livedAwayFromHome),
       infantQualified: parseYesNo(infantQualified),
-      arrivalWindow,
-      childcareHours
+      arrivalWindow: cleanApiaField(arrivalWindow),
+      childcareHours,
+      englishProficiencyLevel
     };
   }
 
