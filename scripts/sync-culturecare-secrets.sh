@@ -6,6 +6,14 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${ENV_FILE:-$PROJECT_DIR/.env}"
 WRANGLER_CONFIG_FILE="${WRANGLER_CONFIG:-$PROJECT_DIR/wrangler.toml}"
 
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+
 read_env_value() {
   local key="$1"
   local file="$2"
@@ -66,6 +74,34 @@ await Bun.write(file, out);
 '
 }
 
+validate_apia_cookie() {
+  local cookie="$1"
+  local url="$2"
+  local user_agent="$3"
+  if [ -z "$cookie" ] || [ -z "$url" ]; then
+    return 1
+  fi
+
+  COOKIE="$cookie" URL="$url" USER_AGENT="$user_agent" bun -e '
+const cookie = process.env.COOKIE || "";
+const url = process.env.URL || "";
+const userAgent = process.env.USER_AGENT || "Mozilla/5.0";
+if (!cookie || !url) process.exit(1);
+const response = await fetch(url, {
+  headers: {
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    cookie,
+    "user-agent": userAgent
+  }
+});
+const html = await response.text();
+const ok = response.ok && /id="searchForm"/i.test(html) && /id="paginateForm"/i.test(html) && !/Host Family Login|Au Pair in America Host Family - Login/i.test(html);
+process.exit(ok ? 0 : 1);
+'
+}
+
 if [ -z "${CULTURECARE_BEARER:-}" ]; then
   CULTURECARE_BEARER="$(read_env_value "CULTURECARE_BEARER" "$ENV_FILE")"
 fi
@@ -108,6 +144,8 @@ fi
 if [ -z "${APIA_USER_AGENT:-}" ]; then
   APIA_USER_AGENT="$(read_env_value "APIA_USER_AGENT" "$ENV_FILE")"
 fi
+
+APIA_SECRETS_VALID=false
 
 # Optional extractor command: must print JSON like
 # {"bearer":"...","refreshToken":"..."}
@@ -160,10 +198,16 @@ if [ -n "${APIA_COOKIE_COMMAND:-}" ]; then
         else
           echo "Extracted fresh APIA cookie from browser profile"
         fi
+        APIA_SECRETS_VALID=true
       fi
     fi
   else
-    echo "Warning: APIA browser cookie extraction command failed; continuing with existing env values"
+    if validate_apia_cookie "${APIA_COOKIE_OVERRIDE:-$APIA_COOKIE}" "${APIA_URL_OVERRIDE:-$APIA_URL}" "${APIA_USER_AGENT:-}"; then
+      echo "Warning: APIA browser cookie extraction command failed; using existing validated APIA cookie from env values"
+      APIA_SECRETS_VALID=true
+    else
+      echo "Warning: APIA browser cookie extraction command failed and existing APIA env cookie is not valid; APIA secrets will not be updated"
+    fi
   fi
 fi
 
@@ -225,27 +269,27 @@ if [ -n "${CULTURECARE_HOST_FAMILY_ID:-}" ]; then
   echo "Updated CULTURECARE_HOST_FAMILY_ID"
 fi
 
-if [ -n "${APIA_URL:-}" ]; then
+if [ "$APIA_SECRETS_VALID" = true ] && [ -n "${APIA_URL:-}" ]; then
   printf "%s" "$APIA_URL" | bunx wrangler secret put APIA_URL --config "$WRANGLER_CONFIG_FILE"
   echo "Updated APIA_URL"
 fi
 
-if [ -n "${APIA_COOKIE:-}" ]; then
+if [ "$APIA_SECRETS_VALID" = true ] && [ -n "${APIA_COOKIE:-}" ]; then
   printf "%s" "$APIA_COOKIE" | bunx wrangler secret put APIA_COOKIE --config "$WRANGLER_CONFIG_FILE"
   echo "Updated APIA_COOKIE"
 fi
 
-if [ -n "${APIA_URL_OVERRIDE:-}" ]; then
+if [ "$APIA_SECRETS_VALID" = true ] && [ -n "${APIA_URL_OVERRIDE:-}" ]; then
   printf "%s" "$APIA_URL_OVERRIDE" | bunx wrangler secret put APIA_URL_OVERRIDE --config "$WRANGLER_CONFIG_FILE"
   echo "Updated APIA_URL_OVERRIDE"
 fi
 
-if [ -n "${APIA_COOKIE_OVERRIDE:-}" ]; then
+if [ "$APIA_SECRETS_VALID" = true ] && [ -n "${APIA_COOKIE_OVERRIDE:-}" ]; then
   printf "%s" "$APIA_COOKIE_OVERRIDE" | bunx wrangler secret put APIA_COOKIE_OVERRIDE --config "$WRANGLER_CONFIG_FILE"
   echo "Updated APIA_COOKIE_OVERRIDE"
 fi
 
-if [ -n "${APIA_USER_AGENT:-}" ]; then
+if [ "$APIA_SECRETS_VALID" = true ] && [ -n "${APIA_USER_AGENT:-}" ]; then
   printf "%s" "$APIA_USER_AGENT" | bunx wrangler secret put APIA_USER_AGENT --config "$WRANGLER_CONFIG_FILE"
   echo "Updated APIA_USER_AGENT"
 fi
