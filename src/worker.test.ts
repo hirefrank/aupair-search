@@ -22,4 +22,7 @@ describe("keysToMarkNotified", () => {
     expect(keysToMarkNotified(["a", "b", "c"], 2)).toEqual(["a", "b"]);
     expect(keysToMarkNotified(["a", "b", "c"], 0)).toEqual([]);
   });
+  test("caps at the available key count", () => {
+    expect(keysToMarkNotified(["a", "b"], 5)).toEqual(["a", "b"]);
+  });
 });

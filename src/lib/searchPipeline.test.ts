@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { matchesCriteria, matchesWordBoundary, passesMaturityGate, runSearchPipeline } from "./searchPipeline.js";
+import { passesAgeCriteria } from "./searchPipeline.js";
 import type { MaturityGate } from "./searchPipeline.js";
 import type { RankedProfile } from "../types.js";
 
@@ -260,5 +261,72 @@ describe("runSearchPipeline", () => {
 
     expect(run.bySource.apia.skipped).toBe(true);
     expect(run.bySource.apia.reason).toContain("APIA_FETCH_DETAILS must be true");
+  });
+});
+
+describe("passesAgeCriteria", () => {
+  test("rejects candidates below the maturity gate minimum age", () => {
+    const profile = makeProfile({
+      age: 20,
+      experienceMonths: 36,
+      raw: {
+        educationLevel: "University",
+        aboutSelfAndInterests: "I am responsible, organized, and dedicated"
+      }
+    });
+
+    expect(passesAgeCriteria(profile, { minAge: 22, maturityGate: defaultGate })).toBe(false);
+  });
+
+  test("requires the maturity gate for candidates below the main minimum age", () => {
+    const profile = makeProfile({
+      age: 21,
+      experienceMonths: 24,
+      raw: {
+        educationLevel: "High School",
+        aboutSelfAndInterests: "I am responsible and organized"
+      }
+    });
+
+    expect(passesAgeCriteria(profile, { minAge: 22, maturityGate: defaultGate })).toBe(true);
+  });
+
+  test("rejects below-min-age candidates that do not meet the maturity gate", () => {
+    const profile = makeProfile({
+      age: 21,
+      experienceMonths: 12,
+      raw: {
+        educationLevel: "High School",
+        aboutSelfAndInterests: "I am friendly and caring"
+      }
+    });
+
+    expect(passesAgeCriteria(profile, { minAge: 22, maturityGate: defaultGate })).toBe(false);
+  });
+
+  test("does not require the maturity gate once the main minimum age is met", () => {
+    const profile = makeProfile({
+      age: 22,
+      experienceMonths: 0,
+      raw: {
+        educationLevel: "High School",
+        aboutSelfAndInterests: "I am friendly and caring"
+      }
+    });
+
+    expect(passesAgeCriteria(profile, { minAge: 22, maturityGate: defaultGate })).toBe(true);
+  });
+
+  test("rejects below-min-age candidates when the maturity gate is disabled", () => {
+    const profile = makeProfile({
+      age: 21,
+      experienceMonths: 24,
+      raw: {
+        educationLevel: "University",
+        aboutSelfAndInterests: "I am responsible and organized"
+      }
+    });
+
+    expect(passesAgeCriteria(profile, { minAge: 22, maturityGate: null })).toBe(false);
   });
 });

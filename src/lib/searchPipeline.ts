@@ -261,16 +261,24 @@ export function passesMaturityGate(profile: RankedProfile, gate: MaturityGate): 
 }
 
 /** @internal Exported for testing */
+export function passesAgeCriteria(
+  profile: RankedProfile,
+  criteria: Pick<MatchCriteria, "minAge" | "maturityGate">
+): boolean {
+  if (typeof profile.age !== "number") return false;
+  if (profile.age < (criteria.maturityGate?.minAge ?? criteria.minAge)) return false;
+  if (profile.age < criteria.minAge) {
+    return criteria.maturityGate ? passesMaturityGate(profile, criteria.maturityGate) : false;
+  }
+  return true;
+}
+
+/** @internal Exported for testing */
 export function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boolean {
   const raw = profile.raw as Record<string, unknown>;
   const source = sourceOf(profile);
 
-  // Age check with maturity gate for candidates between maturityGate.minAge and criteria.minAge
-  if (typeof profile.age !== "number") return false;
-  if (profile.age < (criteria.maturityGate?.minAge ?? criteria.minAge)) return false;
-  if (profile.age < criteria.minAge) {
-    if (!criteria.maturityGate || !passesMaturityGate(profile, criteria.maturityGate)) return false;
-  }
+  if (!passesAgeCriteria(profile, criteria)) return false;
 
   const femaleOk = !criteria.requireFemale || isLikelyFemale(profile);
   if (!femaleOk) return false;
