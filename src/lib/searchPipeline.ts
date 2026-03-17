@@ -29,6 +29,7 @@ type MaturityGate = {
 type MatchCriteria = {
   minAge: number;
   requireFemale: boolean;
+  excludedCountries: string[];
   minEnglishLevel: number;
   arrivalEarliest: Date | null;
   arrivalLatest: Date | null;
@@ -288,6 +289,9 @@ export function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria)
   const femaleOk = !criteria.requireFemale || isLikelyFemale(profile);
   if (!femaleOk) return false;
 
+  const country = typeof profile.country === "string" ? profile.country.trim().toLowerCase() : "";
+  if (country && criteria.excludedCountries.includes(country)) return false;
+
   if (criteria.minEnglishLevel > 0) {
     const level = getEnglishLevel(profile);
     if (source === "culturecare") {
@@ -443,6 +447,7 @@ export async function runSearchPipeline(
   const criteria: MatchCriteria = {
     minAge: mainMinAge,
     requireFemale: asBoolean(env.MATCH_REQUIRE_FEMALE, true),
+    excludedCountries: asCsvList(env.MATCH_EXCLUDED_COUNTRIES, []),
     minEnglishLevel: asNumber(env.MATCH_MIN_ENGLISH_LEVEL, 6),
     arrivalEarliest: parseDate(env.MATCH_ARRIVAL_EARLIEST || "2026-06-01"),
     arrivalLatest: parseDate(env.MATCH_ARRIVAL_LATEST || "2026-07-31"),

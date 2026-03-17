@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-export function loadDotEnv(filePath = ".env"): void {
+export function loadDotEnv(filePath = ".env", override = false): void {
   if (!fs.existsSync(filePath)) return;
   const raw = fs.readFileSync(filePath, "utf8");
   const lines = raw.split(/\r?\n/);
@@ -20,7 +20,7 @@ export function loadDotEnv(filePath = ".env"): void {
       value = value.slice(1, -1);
     }
 
-    if (!(key in process.env)) {
+    if (override || !(key in process.env)) {
       process.env[key] = value;
     }
   }

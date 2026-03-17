@@ -31,6 +31,7 @@ function defaultCriteria(): Parameters<typeof matchesCriteria>[1] {
   return {
     minAge: 22,
     requireFemale: true,
+    excludedCountries: [],
     minEnglishLevel: 6,
     arrivalEarliest: null,
     arrivalLatest: null,
@@ -211,6 +212,25 @@ describe("matchesCriteria", () => {
       minEnglishLevel: 6,
       requireSwimmingSupervision: true,
       requireLivedAwayFromHome: true
+    };
+
+    expect(matchesCriteria(profile, criteria)).toBe(false);
+  });
+
+  test("rejects excluded countries", () => {
+    const profile = makeProfile({
+      age: 22,
+      country: "China",
+      raw: {
+        genderIdentity: "Female",
+        englishProficiencyLevel: "Level 6"
+      }
+    });
+
+    const criteria = {
+      ...defaultCriteria(),
+      excludedCountries: ["china"],
+      minEnglishLevel: 6
     };
 
     expect(matchesCriteria(profile, criteria)).toBe(false);

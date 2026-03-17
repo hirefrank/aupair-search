@@ -6,6 +6,10 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+const DEFAULT_USER_AGENT =
+  process.env.APIA_USER_AGENT ||
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 const APIA_URL = process.env.APIA_BROWSER_URL || "https://my.aupairinamerica.com/AuPair/Index";
 const APIA_HOST = new URL(APIA_URL).hostname;
 
@@ -137,15 +141,49 @@ function chooseCookieRows(rows) {
   return [...deduped.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+async function validateApiaSession(cookieHeader) {
+  const response = await fetch(APIA_URL, {
+    method: "GET",
+    headers: {
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language": "en-US,en;q=0.9",
+      "cache-control": "no-cache",
+      cookie: cookieHeader,
+      "user-agent": DEFAULT_USER_AGENT
+    }
+  });
+
+  const html = await response.text();
+  const hasSearchForm = /id="searchForm"/i.test(html);
+  const hasPaginateForm = /id="paginateForm"/i.test(html);
+  const hasLoginPage = /Au Pair in America Host Family - Login|Host Family Login/i.test(html);
+
+  return {
+    valid: response.ok && hasSearchForm && hasPaginateForm && !hasLoginPage,
+    httpStatus: response.status,
+    hasSearchForm,
+    hasPaginateForm,
+    hasLoginPage
+  };
+}
+
 async function readCookiesFromProfile(profile) {
   const cookiesPath = path.join(profile.profileDir, "Cookies");
   if (!(await exists(cookiesPath))) return null;
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "apia-cookies-"));
   const tempDb = path.join(tempDir, "Cookies.sqlite");
+  const tempWal = `${tempDb}-wal`;
+  const tempShm = `${tempDb}-shm`;
 
   try {
     await fs.copyFile(cookiesPath, tempDb);
+    if (await exists(`${cookiesPath}-wal`)) {
+      await fs.copyFile(`${cookiesPath}-wal`, tempWal);
+    }
+    if (await exists(`${cookiesPath}-shm`)) {
+      await fs.copyFile(`${cookiesPath}-shm`, tempShm);
+    }
     const db = new Database(tempDb, { readonly: true, create: false });
     const metaVersion = Number(db.query("select value from meta where key = 'version'").get()?.value || 0);
     const rows = db
@@ -178,6 +216,7 @@ async function readCookiesFromProfile(profile) {
     const names = cookieRows.map((row) => row.name);
     const hasRequired = requiredNames.every((name) => names.includes(name));
     const freshness = Math.max(...cookieRows.map((row) => row.last_access_utc || 0));
+    const validation = await validateApiaSession(cookieHeader);
 
     return {
       browserName: profile.browserName,
@@ -185,7 +224,8 @@ async function readCookiesFromProfile(profile) {
       cookie: cookieHeader,
       cookieNames: names,
       hasRequired,
-      freshness
+      freshness,
+      validation
     };
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -210,6 +250,9 @@ async function main() {
   }
 
   results.sort((a, b) => {
+    if (Number(b.validation.valid) !== Number(a.validation.valid)) {
+      return Number(b.validation.valid) - Number(a.validation.valid);
+    }
     if (Number(b.hasRequired) !== Number(a.hasRequired)) {
       return Number(b.hasRequired) - Number(a.hasRequired);
     }
@@ -217,6 +260,11 @@ async function main() {
   });
 
   const best = results[0];
+  if (!best.validation.valid) {
+    throw new Error(
+      `Browser cookies were found in ${best.profileDir}, but they do not produce a valid APIA session (HTTP ${best.validation.httpStatus}, searchForm=${best.validation.hasSearchForm}, paginateForm=${best.validation.hasPaginateForm}, loginPage=${best.validation.hasLoginPage})`
+    );
+  }
   process.stdout.write(
     JSON.stringify({
       url: APIA_URL,
@@ -225,7 +273,8 @@ async function main() {
         browserName: best.browserName,
         profileDir: best.profileDir,
         cookieNames: best.cookieNames,
-        hasRequired: best.hasRequired
+        hasRequired: best.hasRequired,
+        validation: best.validation
       }
     })
   );

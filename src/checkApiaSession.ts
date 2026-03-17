@@ -2,7 +2,7 @@ import { load } from "cheerio";
 import { loadDotEnv } from "./lib/env.js";
 import { fetchWithRetry } from "./lib/http.js";
 
-loadDotEnv();
+loadDotEnv(".env", true);
 
 const apiaBaseUrl = process.env.APIA_URL_OVERRIDE || process.env.APIA_URL || "";
 const apiaCookie = process.env.APIA_COOKIE_OVERRIDE || process.env.APIA_COOKIE || "";

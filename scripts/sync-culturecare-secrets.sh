@@ -128,7 +128,7 @@ if [ -n "${CULTURECARE_TOKEN_COMMAND:-}" ]; then
     fi
   fi
   else
-    echo "Warning: browser token extraction command failed; continuing with existing env values"
+    echo "Warning: Culture Care browser token extraction command failed; continuing with existing env values"
   fi
 fi
 
@@ -141,6 +141,7 @@ if [ -n "${APIA_COOKIE_COMMAND:-}" ]; then
     if [ -n "$COOKIE_JSON" ]; then
       APIA_URL_FROM_CMD=$(printf "%s" "$COOKIE_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.url==='string'?d.url:'')")
       APIA_COOKIE_FROM_CMD=$(printf "%s" "$COOKIE_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.cookie==='string'?d.cookie:'')")
+      APIA_PROFILE_FROM_CMD=$(printf "%s" "$COOKIE_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.meta?.profileDir==='string'?d.meta.profileDir:'')")
       if [ -n "$APIA_URL_FROM_CMD" ]; then
         export APIA_URL="$APIA_URL_FROM_CMD"
         export APIA_URL_OVERRIDE="$APIA_URL_FROM_CMD"
@@ -152,6 +153,13 @@ if [ -n "${APIA_COOKIE_COMMAND:-}" ]; then
         export APIA_COOKIE_OVERRIDE="$APIA_COOKIE_FROM_CMD"
         write_env_value "APIA_COOKIE" "$APIA_COOKIE_FROM_CMD" "$ENV_FILE"
         write_env_value "APIA_COOKIE_OVERRIDE" "$APIA_COOKIE_FROM_CMD" "$ENV_FILE"
+      fi
+      if [ -n "$APIA_COOKIE_FROM_CMD" ]; then
+        if [ -n "$APIA_PROFILE_FROM_CMD" ]; then
+          echo "Extracted fresh APIA cookie from $APIA_PROFILE_FROM_CMD"
+        else
+          echo "Extracted fresh APIA cookie from browser profile"
+        fi
       fi
     fi
   else
