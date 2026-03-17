@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENABLE_CULTURECARE = "true"
-ENABLE_APIA = "false"
+ENABLE_APIA = "true"
 MAX_PAGES = "200"
 CULTURECARE_SEARCH_BODY_JSON = "{}"
 MATCH_SCORE_THRESHOLD = "60"
