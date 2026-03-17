@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getApiaRequestVerificationToken } from "./lib/apiaFavorites.js";
+import { getApiaCookieVerificationToken, getApiaPageVerificationToken } from "./lib/apiaFavorites.js";
 import {
   containsApiaAuthError,
   containsCultureCareAuthError,
@@ -28,12 +28,17 @@ describe("keysToMarkNotified", () => {
   });
 });
 
-describe("getApiaRequestVerificationToken", () => {
+describe("APIA verification tokens", () => {
   test("reads the anti-forgery token from the cookie header", () => {
-    expect(getApiaRequestVerificationToken("foo=1; __RequestVerificationToken=abc123; bar=2")).toBe("abc123");
+    expect(getApiaCookieVerificationToken("foo=1; __RequestVerificationToken=abc123; bar=2")).toBe("abc123");
   });
 
   test("returns null when the token cookie is missing", () => {
-    expect(getApiaRequestVerificationToken("foo=1; bar=2")).toBeNull();
+    expect(getApiaCookieVerificationToken("foo=1; bar=2")).toBeNull();
+  });
+
+  test("reads the anti-forgery token from the APIA page html", () => {
+    const html = '<form id="searchForm"><input name="__RequestVerificationToken" value="page-token-123" /></form>';
+    expect(getApiaPageVerificationToken(html)).toBe("page-token-123");
   });
 });
