@@ -6,10 +6,11 @@ import {
   buildCandidateDetailsModal,
   parseBookmarkPayload,
   parseCandidateDetailsPayload,
+  sendApiaAuthAlert,
   sendCultureCareAuthAlert,
   sendSlackCandidates
 } from "./lib/slack.js";
-import type { RankedProfile } from "./types.js";
+import type { AdapterRunResult, RankedProfile } from "./types.js";
 
 type Bindings = {
   MATCH_NOTIFICATIONS: {
@@ -136,8 +137,14 @@ async function sendEphemeral(botToken: string, channel: string, user: string, te
   }
 }
 
-function containsCultureCareAuthError(message: string): boolean {
-  return /culture\s*care|cognito|refresh token|bearer|auth|unauthorized|401/i.test(message);
+/** @internal Exported for testing */
+export function containsCultureCareAuthError(message: string): boolean {
+  return /culture\s*care|cognito|refresh token|bearer/i.test(message);
+}
+
+/** @internal Exported for testing */
+export function containsApiaAuthError(message: string): boolean {
+  return /apia.*(?:logged out|unauthorized|forgery token|session|auth)|apia.*401/i.test(message);
 }
 
 async function shouldSendTtlKey(
@@ -156,9 +163,10 @@ async function shouldSendTtlKey(
 async function maybeSendCultureCareAuthAlert(
   bindings: Bindings,
   env: NodeJS.ProcessEnv,
-  errorMessage: string
+  errorMessage: string,
+  errorCode?: string
 ): Promise<void> {
-  if (!containsCultureCareAuthError(errorMessage)) return;
+  if (errorCode !== "culturecare_auth" && !containsCultureCareAuthError(errorMessage)) return;
 
   const webhookUrl = env.SLACK_WEBHOOK_URL || "";
   if (!webhookUrl) return;
@@ -177,6 +185,43 @@ async function maybeSendCultureCareAuthAlert(
     reauthUrl,
     errorMessage
   });
+}
+
+async function maybeSendApiaAuthAlert(
+  bindings: Bindings,
+  env: NodeJS.ProcessEnv,
+  errorMessage: string,
+  errorCode?: string
+): Promise<void> {
+  if (errorCode !== "apia_auth" && !containsApiaAuthError(errorMessage)) return;
+
+  const webhookUrl = env.SLACK_WEBHOOK_URL || "";
+  if (!webhookUrl) return;
+
+  const ttlHours = asNumber(env.AUTH_ALERT_TTL_HOURS, 12);
+  const shouldSend = await shouldSendTtlKey(
+    bindings.MATCH_NOTIFICATIONS,
+    "alert:apia-auth",
+    ttlHours * 60 * 60
+  );
+  if (!shouldSend) return;
+
+  await sendApiaAuthAlert({ webhookUrl, errorMessage });
+}
+
+async function maybeSendSourceAuthAlert(
+  bindings: Bindings,
+  env: NodeJS.ProcessEnv,
+  result: Pick<AdapterRunResult, "source" | "reason" | "errorCode"> | null | undefined
+): Promise<void> {
+  if (!result?.reason) return;
+  if (result.source === "culturecare") {
+    await maybeSendCultureCareAuthAlert(bindings, env, result.reason, result.errorCode);
+    return;
+  }
+  if (result.source === "apia") {
+    await maybeSendApiaAuthAlert(bindings, env, result.reason, result.errorCode);
+  }
 }
 
 async function filterAlreadyNotified(
@@ -244,12 +289,20 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     run = await runSearchPipeline(env, { maxPages });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await maybeSendCultureCareAuthAlert(bindings, env, message);
+    if (containsCultureCareAuthError(message)) {
+      await maybeSendCultureCareAuthAlert(bindings, env, message);
+    } else if (containsApiaAuthError(message)) {
+      await maybeSendApiaAuthAlert(bindings, env, message);
+    }
     throw error;
   }
 
-  if (run.bySource.culturecare.skipped && run.bySource.culturecare.reason) {
-    await maybeSendCultureCareAuthAlert(bindings, env, run.bySource.culturecare.reason);
+  if (run.bySource.culturecare.skipped) {
+    await maybeSendSourceAuthAlert(bindings, env, run.bySource.culturecare);
+  }
+
+  if (run.bySource.apia.skipped) {
+    await maybeSendSourceAuthAlert(bindings, env, run.bySource.apia);
   }
 
   const webhookUrl = env.SLACK_WEBHOOK_URL || "";

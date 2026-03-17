@@ -99,9 +99,25 @@ function safe(value: string | null | undefined, fallback = "Unknown"): string {
   return value && value.trim() ? value.trim() : fallback;
 }
 
-function englishLevel(profile: RankedProfile): string {
+function rawDetail(profile: RankedProfile): Record<string, unknown> | null {
   const raw = profile.raw as Record<string, unknown>;
-  if (typeof raw.englishProficiencyLevel === "string") return raw.englishProficiencyLevel;
+  if (raw.detail && typeof raw.detail === "object") return raw.detail as Record<string, unknown>;
+  return null;
+}
+
+function rawStringField(profile: RankedProfile, field: string): string {
+  const raw = profile.raw as Record<string, unknown>;
+  if (typeof raw[field] === "string") return raw[field];
+  const detail = rawDetail(profile);
+  if (detail && typeof detail[field] === "string") return detail[field] as string;
+  return "";
+}
+
+function englishLevel(profile: RankedProfile): string {
+  const level = rawStringField(profile, "englishProficiencyLevel");
+  if (level) return level;
+  // APIA: no structured English level; check for language info in detail text
+  if (profile.source === "apia") return "N/A";
   return "Unknown";
 }
 
@@ -134,6 +150,11 @@ function arrivalWindow(profile: RankedProfile): string {
     return `${from} -> ${to}`;
   }
   if (typeof raw.startWindow === "string" && raw.startWindow.trim()) return raw.startWindow;
+  // APIA: detail.arrivalWindow
+  const detail = rawDetail(profile);
+  if (detail && typeof detail.arrivalWindow === "string" && detail.arrivalWindow.trim()) {
+    return detail.arrivalWindow;
+  }
   return "Unknown";
 }
 
@@ -203,8 +224,17 @@ function detailsPayloadWithSizeLimit(payload: SlackCandidateDetails, maxLength =
   };
 }
 
-function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number): string {
+function rawFieldValue(profile: RankedProfile, ...fields: string[]): unknown {
   const raw = profile.raw as Record<string, unknown>;
+  const detail = rawDetail(profile);
+  for (const field of fields) {
+    if (raw[field] !== undefined) return raw[field];
+    if (detail && detail[field] !== undefined) return detail[field];
+  }
+  return undefined;
+}
+
+function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number): string {
   const details: SlackCandidateDetails = {
     version: 1,
     source: safe(profile.source, "unknown"),
@@ -218,16 +248,16 @@ function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number)
     arrival: arrivalWindow(profile),
     availability: availabilityLabel(profile),
     score: threshold > 0 ? String(profile.score ?? 0) : "Not scored",
-    currentLocation: asDetailsString(raw.currentLocation, 120),
-    auPairNumber: asDetailsString(raw.auPairNumber, 64),
-    childcareHours: asDetailsString(raw.approvedChildcareHours, 64),
-    yearsDriving: asDetailsString(raw.yearsDriving, 64),
-    drivingFrequency: asDetailsString(raw.drivingFrequency, 80),
-    preferredAges: asDetailsString(raw.preferredAges, 120),
-    childrenCapacity: asDetailsString(raw.numberOfChildrenCanCareFor, 64),
-    about: asDetailsString(raw.aboutSelfAndInterests, 600),
-    personality: asDetailsString(raw.personalityTraits, 240),
-    food: asDetailsString(raw.foodPreferences, 240),
+    currentLocation: asDetailsString(rawFieldValue(profile, "currentLocation"), 120),
+    auPairNumber: asDetailsString(rawFieldValue(profile, "auPairNumber"), 64),
+    childcareHours: asDetailsString(rawFieldValue(profile, "approvedChildcareHours", "childcareHours"), 64),
+    yearsDriving: asDetailsString(rawFieldValue(profile, "yearsDriving"), 64),
+    drivingFrequency: asDetailsString(rawFieldValue(profile, "drivingFrequency"), 80),
+    preferredAges: asDetailsString(rawFieldValue(profile, "preferredAges"), 120),
+    childrenCapacity: asDetailsString(rawFieldValue(profile, "numberOfChildrenCanCareFor"), 64),
+    about: asDetailsString(rawFieldValue(profile, "aboutSelfAndInterests", "summaryText"), 600),
+    personality: asDetailsString(rawFieldValue(profile, "personalityTraits"), 240),
+    food: asDetailsString(rawFieldValue(profile, "foodPreferences"), 240),
     profileUrl: typeof profile.profileUrl === "string" ? profile.profileUrl : ""
   };
 
@@ -237,6 +267,7 @@ function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number)
 type BookmarkPayload = { v: 1; source: string; apId: string };
 
 function buildBookmarkPayload(profile: RankedProfile): string | null {
+  // Bookmarking requires CultureCare's GraphQL API — not available for other sources
   if (profile.source !== "culturecare" || !profile.id) return null;
   return JSON.stringify({ v: 1, source: profile.source, apId: profile.id } satisfies BookmarkPayload);
 }
@@ -386,11 +417,15 @@ export function buildCandidateDetailsModal(details: ReturnType<typeof parseCandi
   }
 
   if (safeDetails.profileUrl) {
+    const sourceLabel =
+      safeDetails.source === "culturecare" ? "Culture Care"
+      : safeDetails.source === "apia" ? "APIA"
+      : safeDetails.source || "agency site";
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `<${safeDetails.profileUrl}|Open full profile in Culture Care>`
+        text: `<${safeDetails.profileUrl}|Open full profile on ${sourceLabel}>`
       }
     });
   }
@@ -546,6 +581,40 @@ export async function sendSlackCandidates(
     sent: shownMatches.length,
     shown: shownMatches.length
   };
+}
+
+export async function sendApiaAuthAlert({
+  webhookUrl,
+  errorMessage
+}: { webhookUrl: string; errorMessage: string }): Promise<void> {
+  await sendSlackPayload(webhookUrl, {
+    text: "APIA session expired - reauth required",
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: "APIA Session Expired"
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: ":warning: APIA search could not run because the session cookie appears expired or invalid. Update `APIA_COOKIE` with a fresh session cookie."
+        }
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Last error: ${errorMessage.slice(0, 400)}`
+          }
+        ]
+      }
+    ]
+  });
 }
 
 export async function sendCultureCareAuthAlert({

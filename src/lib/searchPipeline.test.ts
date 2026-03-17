@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { matchesWordBoundary, passesAgeCriteria, passesMaturityGate } from "./searchPipeline.js";
+import { matchesCriteria, matchesWordBoundary, passesMaturityGate, runSearchPipeline } from "./searchPipeline.js";
+import { passesAgeCriteria } from "./searchPipeline.js";
 import type { MaturityGate } from "./searchPipeline.js";
 import type { RankedProfile } from "../types.js";
 
@@ -25,6 +26,23 @@ const defaultGate: MaturityGate = {
   maturityKeywords: ["responsible", "independent", "organized", "mature", "reliable", "professional", "dedicated"],
   requiredSignals: 2
 };
+
+function defaultCriteria(): Parameters<typeof matchesCriteria>[1] {
+  return {
+    minAge: 22,
+    requireFemale: true,
+    minEnglishLevel: 6,
+    arrivalEarliest: null,
+    arrivalLatest: null,
+    childAges: [],
+    requiredPets: [],
+    allowedDrivingFrequencies: [],
+    minDrivingYears: 0,
+    requireSwimmingSupervision: false,
+    requireLivedAwayFromHome: false,
+    maturityGate: null
+  };
+}
 
 describe("matchesWordBoundary", () => {
   test("matches exact word", () => {
@@ -166,6 +184,83 @@ describe("passesMaturityGate", () => {
       }
     });
     expect(passesMaturityGate(profile, defaultGate)).toBe(true);
+  });
+});
+
+describe("matchesCriteria", () => {
+  test("keeps CultureCare english filter strict when data is missing", () => {
+    const profile = makeProfile({
+      age: 22,
+      raw: { genderIdentity: "Female" }
+    });
+
+    expect(matchesCriteria(profile, defaultCriteria())).toBe(false);
+  });
+
+  test("keeps CultureCare swimming and lived-away filters strict when data is missing", () => {
+    const profile = makeProfile({
+      age: 22,
+      raw: {
+        genderIdentity: "Female",
+        englishProficiencyLevel: "Level 6"
+      }
+    });
+
+    const criteria = {
+      ...defaultCriteria(),
+      minEnglishLevel: 6,
+      requireSwimmingSupervision: true,
+      requireLivedAwayFromHome: true
+    };
+
+    expect(matchesCriteria(profile, criteria)).toBe(false);
+  });
+
+  test("allows APIA profile to satisfy detail-backed filters", () => {
+    const profile = makeProfile({
+      source: "apia",
+      age: 22,
+      raw: {
+        detail: {
+          genderIdentity: "Female",
+          drivingFrequency: "weekly",
+          swimmer: "Yes",
+          livedAwayFromHome: true,
+          driverLicenseReceivedOn: "2020-01-15",
+          petAllergies: "none"
+        }
+      }
+    });
+
+    const criteria = {
+      ...defaultCriteria(),
+      minEnglishLevel: 0,
+      requiredPets: ["dogs"],
+      allowedDrivingFrequencies: ["weekly"],
+      minDrivingYears: 1,
+      requireSwimmingSupervision: true,
+      requireLivedAwayFromHome: true
+    };
+
+    expect(matchesCriteria(profile, criteria)).toBe(true);
+  });
+});
+
+describe("runSearchPipeline", () => {
+  test("skips APIA with a clear reason when detail-backed filters are active and detail fetch is disabled", async () => {
+    const run = await runSearchPipeline(
+      {
+        ENABLE_CULTURECARE: "false",
+        ENABLE_APIA: "true",
+        APIA_URL: "https://example.com/apia",
+        APIA_COOKIE: "session=1",
+        APIA_FETCH_DETAILS: "false"
+      },
+      { maxPages: 1 }
+    );
+
+    expect(run.bySource.apia.skipped).toBe(true);
+    expect(run.bySource.apia.reason).toContain("APIA_FETCH_DETAILS must be true");
   });
 });
 
