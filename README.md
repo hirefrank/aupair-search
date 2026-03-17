@@ -39,6 +39,7 @@ bun install
 Set required values in `.env`:
 
 - `CULTURECARE_REFRESH_TOKEN` (recommended) and/or `CULTURECARE_BEARER`
+- `APIA_EMAIL` and `APIA_PASSWORD` (recommended for reliable APIA login)
 - `SLACK_WEBHOOK_URL`
 - `SLACK_ENABLE_DETAILS_MODAL` (`true` only if you want in-Slack modal details)
 - `SLACK_BOT_TOKEN` (required when `SLACK_ENABLE_DETAILS_MODAL=true`)
@@ -52,7 +53,7 @@ Then sync secrets to Cloudflare:
 bun run sync:secrets
 ```
 
-`sync:secrets` will automatically try to extract a fresh Culture Care bearer token and a fresh APIA cookie from your local Chrome/Chromium profile, then update `.env` and sync those values to Cloudflare.
+`sync:secrets` will sync APIA credentials when present. It will also try to extract a fresh Culture Care bearer token and a fresh APIA cookie from your local Chrome/Chromium profile, then update `.env` and sync valid values to Cloudflare.
 
 ## Deploy
 

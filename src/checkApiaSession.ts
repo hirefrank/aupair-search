@@ -1,11 +1,14 @@
 import { load } from "cheerio";
 import { loadDotEnv } from "./lib/env.js";
+import { createApiaSession } from "./lib/apiaSession.js";
 import { fetchWithRetry } from "./lib/http.js";
 
 loadDotEnv(".env", true);
 
 const apiaBaseUrl = process.env.APIA_URL_OVERRIDE || process.env.APIA_URL || "";
 const apiaCookie = process.env.APIA_COOKIE_OVERRIDE || process.env.APIA_COOKIE || "";
+const apiaEmail = process.env.APIA_EMAIL || "";
+const apiaPassword = process.env.APIA_PASSWORD || "";
 const apiaUserAgent =
   process.env.APIA_USER_AGENT ||
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -19,9 +22,17 @@ async function main(): Promise<void> {
   if (!apiaBaseUrl) {
     fail("APIA_URL is missing");
   }
-  if (!apiaCookie) {
-    fail("APIA_COOKIE is missing");
+  if (!apiaCookie && (!apiaEmail || !apiaPassword)) {
+    fail("Provide APIA_COOKIE or APIA_EMAIL/APIA_PASSWORD");
   }
+
+  const sessionCookie = await createApiaSession({
+    baseUrl: apiaBaseUrl,
+    userAgent: apiaUserAgent,
+    cookie: apiaCookie,
+    email: apiaEmail,
+    password: apiaPassword
+  });
 
   const response = await fetchWithRetry(
     apiaBaseUrl,
@@ -32,7 +43,7 @@ async function main(): Promise<void> {
         "accept-language": "en-US,en;q=0.9",
         "cache-control": "no-cache",
         "user-agent": apiaUserAgent,
-        cookie: apiaCookie
+        cookie: sessionCookie
       }
     },
     {

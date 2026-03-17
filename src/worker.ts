@@ -415,9 +415,11 @@ app.post("/api/slack/actions", async (c) => {
         const apiaCookie = env.APIA_COOKIE_OVERRIDE || env.APIA_COOKIE || "";
         const apiaBaseUrl = env.APIA_URL_OVERRIDE || env.APIA_URL || "";
         const apiaUserAgent = env.APIA_USER_AGENT || undefined;
+        const apiaEmail = env.APIA_EMAIL || undefined;
+        const apiaPassword = env.APIA_PASSWORD || undefined;
 
-        if (!apiaCookie || !apiaBaseUrl) {
-          console.error("Missing APIA_URL or APIA_COOKIE for bookmark action");
+        if (!apiaBaseUrl || (!apiaCookie && (!apiaEmail || !apiaPassword))) {
+          console.error("Missing APIA_URL and either APIA_COOKIE or APIA_EMAIL/APIA_PASSWORD for bookmark action");
           return c.text("");
         }
 
@@ -425,7 +427,9 @@ app.post("/api/slack/actions", async (c) => {
           apId: bookmark.apId,
           cookie: apiaCookie,
           baseUrl: apiaBaseUrl,
-          userAgent: apiaUserAgent
+          userAgent: apiaUserAgent,
+          email: apiaEmail,
+          password: apiaPassword
         });
       } else {
         return c.text("");

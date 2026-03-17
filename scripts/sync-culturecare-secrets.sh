@@ -132,6 +132,12 @@ fi
 if [ -z "${APIA_URL:-}" ]; then
   APIA_URL="$(read_env_value "APIA_URL" "$ENV_FILE")"
 fi
+if [ -z "${APIA_EMAIL:-}" ]; then
+  APIA_EMAIL="$(read_env_value "APIA_EMAIL" "$ENV_FILE")"
+fi
+if [ -z "${APIA_PASSWORD:-}" ]; then
+  APIA_PASSWORD="$(read_env_value "APIA_PASSWORD" "$ENV_FILE")"
+fi
 if [ -z "${APIA_COOKIE:-}" ]; then
   APIA_COOKIE="$(read_env_value "APIA_COOKIE" "$ENV_FILE")"
 fi
@@ -247,6 +253,16 @@ fi
 if [ -n "${MANUAL_TRIGGER_TOKEN:-}" ]; then
   printf "%s" "$MANUAL_TRIGGER_TOKEN" | bunx wrangler secret put MANUAL_TRIGGER_TOKEN --config "$WRANGLER_CONFIG_FILE"
   echo "Updated MANUAL_TRIGGER_TOKEN"
+fi
+
+if [ -n "${APIA_EMAIL:-}" ]; then
+  printf "%s" "$APIA_EMAIL" | bunx wrangler secret put APIA_EMAIL --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_EMAIL"
+fi
+
+if [ -n "${APIA_PASSWORD:-}" ]; then
+  printf "%s" "$APIA_PASSWORD" | bunx wrangler secret put APIA_PASSWORD --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_PASSWORD"
 fi
 
 if [ -n "${SLACK_BOT_TOKEN:-}" ]; then

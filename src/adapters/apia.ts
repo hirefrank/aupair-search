@@ -1,5 +1,6 @@
 import { load } from "cheerio";
 import { fetchWithRetry } from "../lib/http.js";
+import { createApiaSession } from "../lib/apiaSession.js";
 import { sleep } from "../lib/utils.js";
 import type { AdapterRunResult, JsonObject, RankedProfile } from "../types.js";
 
@@ -69,10 +70,14 @@ export class ApiaAdapter {
   private baseUrl: string;
   private cookie: string;
   private userAgent: string;
+  private email: string;
+  private password: string;
   private skipOnAuthError: boolean;
   private clearFilters: boolean;
   private fetchDetailPages: boolean;
   private detailConcurrency: number;
+  private sessionCookie: string | null = null;
+  private sessionPromise: Promise<string> | null = null;
 
   constructor(private env: NodeJS.ProcessEnv = process.env) {
     this.baseUrl = env.APIA_URL_OVERRIDE || env.APIA_URL || "";
@@ -80,6 +85,8 @@ export class ApiaAdapter {
     this.userAgent =
       env.APIA_USER_AGENT ||
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+    this.email = env.APIA_EMAIL || "";
+    this.password = env.APIA_PASSWORD || "";
     this.skipOnAuthError = String(env.APIA_SKIP_ON_AUTH_ERROR || "true") === "true";
     this.clearFilters = String(env.APIA_CLEAR_FILTERS || "true") === "true";
     this.fetchDetailPages = String(env.APIA_FETCH_DETAILS || "false") === "true";
@@ -90,25 +97,47 @@ export class ApiaAdapter {
     return !!this.baseUrl;
   }
 
-  private commonHeaders(referer?: string): Record<string, string> {
+  private async getSessionCookie(forceRefresh = false): Promise<string> {
+    if (!forceRefresh && this.sessionCookie) return this.sessionCookie;
+    if (!forceRefresh && this.sessionPromise) return this.sessionPromise;
+
+    const promise = createApiaSession({
+      baseUrl: this.baseUrl,
+      userAgent: this.userAgent,
+      cookie: this.cookie,
+      email: this.email,
+      password: this.password
+    });
+
+    this.sessionPromise = promise;
+    try {
+      this.sessionCookie = await promise;
+      return this.sessionCookie;
+    } finally {
+      this.sessionPromise = null;
+    }
+  }
+
+  private commonHeaders(cookie: string, referer?: string): Record<string, string> {
     const headers: Record<string, string> = {
       accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "accept-language": "en-US,en;q=0.9",
       "cache-control": "no-cache",
       "user-agent": this.userAgent
     };
-    if (this.cookie) headers.cookie = this.cookie;
+    if (cookie) headers.cookie = cookie;
     if (referer) headers.referer = referer;
     return headers;
   }
 
   private async fetchHtml(url: string, init: RequestInit = {}): Promise<string> {
+    const cookie = await this.getSessionCookie();
     const response = await fetchWithRetry(
       url,
       {
         ...init,
         headers: {
-          ...this.commonHeaders(typeof init.referrer === "string" ? init.referrer : undefined),
+          ...this.commonHeaders(cookie, typeof init.referrer === "string" ? init.referrer : undefined),
           ...(init.headers as Record<string, string> | undefined)
         }
       },
@@ -120,12 +149,38 @@ export class ApiaAdapter {
       }
     );
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`APIA HTTP ${response.status}: ${text.slice(0, 500)}`);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`APIA HTTP ${response.status}: ${text.slice(0, 500)}`);
+      }
+
+    const html = await response.text();
+    if (this.isLikelyLoggedOut(html) && (this.email || this.password)) {
+      const refreshedCookie = await this.getSessionCookie(true);
+      const retried = await fetchWithRetry(
+        url,
+        {
+          ...init,
+          headers: {
+            ...this.commonHeaders(refreshedCookie, typeof init.referrer === "string" ? init.referrer : undefined),
+            ...(init.headers as Record<string, string> | undefined)
+          }
+        },
+        {
+          retries: 2,
+          minDelayMs: 500,
+          maxDelayMs: 10_000,
+          timeoutMs: 20_000
+        }
+      );
+      if (!retried.ok) {
+        const text = await retried.text();
+        throw new Error(`APIA HTTP ${retried.status}: ${text.slice(0, 500)}`);
+      }
+      return retried.text();
     }
 
-    return response.text();
+    return html;
   }
 
   private isLikelyLoggedOut(html: string): boolean {

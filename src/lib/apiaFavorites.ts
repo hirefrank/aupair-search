@@ -1,4 +1,5 @@
 import { fetchWithRetry } from "./http.js";
+import { createApiaSession } from "./apiaSession.js";
 
 type FavoriteResult = {
   ok: boolean;
@@ -40,8 +41,18 @@ export async function favoriteApiaCandidate(params: {
   cookie: string;
   baseUrl: string;
   userAgent?: string;
+  email?: string;
+  password?: string;
 }): Promise<FavoriteResult> {
-  const cookieToken = getApiaCookieVerificationToken(params.cookie);
+  const sessionCookie = await createApiaSession({
+    baseUrl: params.baseUrl,
+    userAgent: params.userAgent || DEFAULT_APIA_USER_AGENT,
+    cookie: params.cookie,
+    email: params.email,
+    password: params.password
+  });
+
+  const cookieToken = getApiaCookieVerificationToken(sessionCookie);
   if (!cookieToken) {
     return { ok: false, error: "Missing APIA __RequestVerificationToken in cookie" };
   }
@@ -53,7 +64,7 @@ export async function favoriteApiaCandidate(params: {
       method: "GET",
       headers: {
         accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        cookie: params.cookie,
+        cookie: sessionCookie,
         "user-agent": params.userAgent || DEFAULT_APIA_USER_AGENT
       }
     },
@@ -83,7 +94,7 @@ export async function favoriteApiaCandidate(params: {
       headers: {
         accept: "*/*",
         "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-        cookie: params.cookie,
+        cookie: sessionCookie,
         origin: baseUrl.origin,
         referer: params.baseUrl,
         "sec-fetch-dest": "empty",
