@@ -244,6 +244,71 @@ describe("matchesCriteria", () => {
 
     expect(matchesCriteria(profile, criteria)).toBe(true);
   });
+
+  test("treats APIA driver eligibility as the driving filter signal", () => {
+    const profile = makeProfile({
+      source: "apia",
+      age: 24,
+      raw: {
+        startWindow: "06/2026 - 07/2026",
+        detail: {
+          genderIdentity: "Female",
+          driver: true,
+          swimmer: "Yes - Intermediate",
+          livedAwayFromHome: true,
+          driverLicenseReceivedOn: "2020-01-15",
+          petAllergies: "None"
+        }
+      }
+    });
+
+    const criteria = {
+      ...defaultCriteria(),
+      minEnglishLevel: 0,
+      childAges: [],
+      requiredPets: ["dogs"],
+      allowedDrivingFrequencies: ["daily", "weekly"],
+      minDrivingYears: 1,
+      requireSwimmingSupervision: true,
+      requireLivedAwayFromHome: true,
+      arrivalEarliest: new Date("2026-06-01"),
+      arrivalLatest: new Date("2026-07-31")
+    };
+
+    expect(matchesCriteria(profile, criteria)).toBe(true);
+  });
+
+  test("rejects APIA profile when the driver signal is explicitly false", () => {
+    const profile = makeProfile({
+      source: "apia",
+      age: 24,
+      raw: {
+        startWindow: "06/2026 - 07/2026",
+        detail: {
+          genderIdentity: "Female",
+          driver: false,
+          swimmer: "Yes - Intermediate",
+          livedAwayFromHome: true,
+          driverLicenseReceivedOn: "2020-01-15",
+          petAllergies: "None"
+        }
+      }
+    });
+
+    const criteria = {
+      ...defaultCriteria(),
+      minEnglishLevel: 0,
+      requiredPets: ["dogs"],
+      allowedDrivingFrequencies: ["daily", "weekly"],
+      minDrivingYears: 1,
+      requireSwimmingSupervision: true,
+      requireLivedAwayFromHome: true,
+      arrivalEarliest: new Date("2026-06-01"),
+      arrivalLatest: new Date("2026-07-31")
+    };
+
+    expect(matchesCriteria(profile, criteria)).toBe(false);
+  });
 });
 
 describe("runSearchPipeline", () => {

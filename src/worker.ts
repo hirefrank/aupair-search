@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { fetchWithRetry } from "./lib/http.js";
 import { runSearchPipeline } from "./lib/searchPipeline.js";
+import { favoriteApiaCandidate } from "./lib/apiaFavorites.js";
 import { favoriteAuPair, getCultureCareBearerToken } from "./lib/culturecareGraphql.js";
 import {
   buildCandidateDetailsModal,
@@ -388,25 +389,47 @@ app.post("/api/slack/actions", async (c) => {
     const bookmark = parseBookmarkPayload(typeof action.value === "string" ? action.value : "");
     if (!bookmark) return c.text("");
 
-    const hfId = env.CULTURECARE_HOST_FAMILY_ID || "";
     const botToken = env.SLACK_BOT_TOKEN || "";
     const userId = typeof payload.user?.id === "string" ? payload.user.id : "";
     const channelId = typeof payload.channel?.id === "string" ? payload.channel.id : "";
 
-    if (!hfId) {
-      console.error("Missing CULTURECARE_HOST_FAMILY_ID for bookmark action");
-      return c.text("");
-    }
-
     try {
-      const bearerToken = await getCultureCareBearerToken(env);
-      const graphqlEndpoint = env.CULTURECARE_GRAPHQL_ENDPOINT || undefined;
-      const result = await favoriteAuPair({
-        bearerToken,
-        apId: bookmark.apId,
-        hfId,
-        endpoint: graphqlEndpoint
-      });
+      let result: { ok: boolean; error?: string };
+
+      if (bookmark.source === "culturecare") {
+        const hfId = env.CULTURECARE_HOST_FAMILY_ID || "";
+        if (!hfId) {
+          console.error("Missing CULTURECARE_HOST_FAMILY_ID for bookmark action");
+          return c.text("");
+        }
+
+        const bearerToken = await getCultureCareBearerToken(env);
+        const graphqlEndpoint = env.CULTURECARE_GRAPHQL_ENDPOINT || undefined;
+        result = await favoriteAuPair({
+          bearerToken,
+          apId: bookmark.apId,
+          hfId,
+          endpoint: graphqlEndpoint
+        });
+      } else if (bookmark.source === "apia") {
+        const apiaCookie = env.APIA_COOKIE_OVERRIDE || env.APIA_COOKIE || "";
+        const apiaBaseUrl = env.APIA_URL_OVERRIDE || env.APIA_URL || "";
+        const apiaUserAgent = env.APIA_USER_AGENT || undefined;
+
+        if (!apiaCookie || !apiaBaseUrl) {
+          console.error("Missing APIA_URL or APIA_COOKIE for bookmark action");
+          return c.text("");
+        }
+
+        result = await favoriteApiaCandidate({
+          apId: bookmark.apId,
+          cookie: apiaCookie,
+          baseUrl: apiaBaseUrl,
+          userAgent: apiaUserAgent
+        });
+      } else {
+        return c.text("");
+      }
 
       if (botToken && userId && channelId) {
         const text = result.ok

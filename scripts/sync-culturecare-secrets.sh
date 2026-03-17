@@ -35,6 +35,37 @@ for (const line of raw.split(/\r?\n/)) {
 '
 }
 
+write_env_value() {
+  local key="$1"
+  local value="$2"
+  local file="$3"
+  KEY="$key" VALUE="$value" FILE="$file" bun -e '
+const key = process.env.KEY;
+const value = process.env.VALUE ?? "";
+const file = process.env.FILE;
+if (!key || !file) process.exit(0);
+let raw = "";
+try {
+  raw = await Bun.file(file).text();
+} catch {}
+const lines = raw ? raw.split(/\r?\n/) : [];
+let replaced = false;
+for (let i = 0; i < lines.length; i += 1) {
+  const line = lines[i].trim();
+  if (!line || line.startsWith("#")) continue;
+  const idx = line.indexOf("=");
+  if (idx <= 0) continue;
+  if (line.slice(0, idx).trim() !== key) continue;
+  lines[i] = `${key}=${value}`;
+  replaced = true;
+  break;
+}
+if (!replaced) lines.push(`${key}=${value}`);
+const out = `${lines.filter((_, i) => i < lines.length - 1 || lines[i] !== "").join("\n")}\n`;
+await Bun.write(file, out);
+'
+}
+
 if [ -z "${CULTURECARE_BEARER:-}" ]; then
   CULTURECARE_BEARER="$(read_env_value "CULTURECARE_BEARER" "$ENV_FILE")"
 fi
@@ -62,6 +93,21 @@ fi
 if [ -z "${CULTURECARE_HOST_FAMILY_ID:-}" ]; then
   CULTURECARE_HOST_FAMILY_ID="$(read_env_value "CULTURECARE_HOST_FAMILY_ID" "$ENV_FILE")"
 fi
+if [ -z "${APIA_URL:-}" ]; then
+  APIA_URL="$(read_env_value "APIA_URL" "$ENV_FILE")"
+fi
+if [ -z "${APIA_COOKIE:-}" ]; then
+  APIA_COOKIE="$(read_env_value "APIA_COOKIE" "$ENV_FILE")"
+fi
+if [ -z "${APIA_URL_OVERRIDE:-}" ]; then
+  APIA_URL_OVERRIDE="$(read_env_value "APIA_URL_OVERRIDE" "$ENV_FILE")"
+fi
+if [ -z "${APIA_COOKIE_OVERRIDE:-}" ]; then
+  APIA_COOKIE_OVERRIDE="$(read_env_value "APIA_COOKIE_OVERRIDE" "$ENV_FILE")"
+fi
+if [ -z "${APIA_USER_AGENT:-}" ]; then
+  APIA_USER_AGENT="$(read_env_value "APIA_USER_AGENT" "$ENV_FILE")"
+fi
 
 # Optional extractor command: must print JSON like
 # {"bearer":"...","refreshToken":"..."}
@@ -83,6 +129,33 @@ if [ -n "${CULTURECARE_TOKEN_COMMAND:-}" ]; then
   fi
   else
     echo "Warning: browser token extraction command failed; continuing with existing env values"
+  fi
+fi
+
+if [ -z "${APIA_COOKIE_COMMAND:-}" ]; then
+  APIA_COOKIE_COMMAND="bun \"$PROJECT_DIR/scripts/extract-apia-cookie-from-browser.mjs\""
+fi
+
+if [ -n "${APIA_COOKIE_COMMAND:-}" ]; then
+  if COOKIE_JSON=$(bash -lc "$APIA_COOKIE_COMMAND" 2>/dev/null); then
+    if [ -n "$COOKIE_JSON" ]; then
+      APIA_URL_FROM_CMD=$(printf "%s" "$COOKIE_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.url==='string'?d.url:'')")
+      APIA_COOKIE_FROM_CMD=$(printf "%s" "$COOKIE_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.cookie==='string'?d.cookie:'')")
+      if [ -n "$APIA_URL_FROM_CMD" ]; then
+        export APIA_URL="$APIA_URL_FROM_CMD"
+        export APIA_URL_OVERRIDE="$APIA_URL_FROM_CMD"
+        write_env_value "APIA_URL" "$APIA_URL_FROM_CMD" "$ENV_FILE"
+        write_env_value "APIA_URL_OVERRIDE" "$APIA_URL_FROM_CMD" "$ENV_FILE"
+      fi
+      if [ -n "$APIA_COOKIE_FROM_CMD" ]; then
+        export APIA_COOKIE="$APIA_COOKIE_FROM_CMD"
+        export APIA_COOKIE_OVERRIDE="$APIA_COOKIE_FROM_CMD"
+        write_env_value "APIA_COOKIE" "$APIA_COOKIE_FROM_CMD" "$ENV_FILE"
+        write_env_value "APIA_COOKIE_OVERRIDE" "$APIA_COOKIE_FROM_CMD" "$ENV_FILE"
+      fi
+    fi
+  else
+    echo "Warning: APIA browser cookie extraction command failed; continuing with existing env values"
   fi
 fi
 
@@ -142,6 +215,31 @@ fi
 if [ -n "${CULTURECARE_HOST_FAMILY_ID:-}" ]; then
   printf "%s" "$CULTURECARE_HOST_FAMILY_ID" | bunx wrangler secret put CULTURECARE_HOST_FAMILY_ID --config "$WRANGLER_CONFIG_FILE"
   echo "Updated CULTURECARE_HOST_FAMILY_ID"
+fi
+
+if [ -n "${APIA_URL:-}" ]; then
+  printf "%s" "$APIA_URL" | bunx wrangler secret put APIA_URL --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_URL"
+fi
+
+if [ -n "${APIA_COOKIE:-}" ]; then
+  printf "%s" "$APIA_COOKIE" | bunx wrangler secret put APIA_COOKIE --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_COOKIE"
+fi
+
+if [ -n "${APIA_URL_OVERRIDE:-}" ]; then
+  printf "%s" "$APIA_URL_OVERRIDE" | bunx wrangler secret put APIA_URL_OVERRIDE --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_URL_OVERRIDE"
+fi
+
+if [ -n "${APIA_COOKIE_OVERRIDE:-}" ]; then
+  printf "%s" "$APIA_COOKIE_OVERRIDE" | bunx wrangler secret put APIA_COOKIE_OVERRIDE --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_COOKIE_OVERRIDE"
+fi
+
+if [ -n "${APIA_USER_AGENT:-}" ]; then
+  printf "%s" "$APIA_USER_AGENT" | bunx wrangler secret put APIA_USER_AGENT --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated APIA_USER_AGENT"
 fi
 
 echo "Secret sync complete"

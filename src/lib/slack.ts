@@ -267,8 +267,7 @@ function buildCandidateDetailsPayload(profile: RankedProfile, threshold: number)
 type BookmarkPayload = { v: 1; source: string; apId: string };
 
 function buildBookmarkPayload(profile: RankedProfile): string | null {
-  // Bookmarking requires CultureCare's GraphQL API — not available for other sources
-  if (profile.source !== "culturecare" || !profile.id) return null;
+  if (!profile.id) return null;
   return JSON.stringify({ v: 1, source: profile.source, apId: profile.id } satisfies BookmarkPayload);
 }
 
