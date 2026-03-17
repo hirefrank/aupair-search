@@ -18,6 +18,7 @@ export type AdapterRunResult = {
   profiles: RankedProfile[];
   skipped: boolean;
   reason?: string;
+  errorCode?: string;
 };
 
 export type Preferences = {

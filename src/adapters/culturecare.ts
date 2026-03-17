@@ -243,8 +243,12 @@ export class CultureCareAdapter {
           source: "culturecare",
           profiles: [],
           skipped: true,
-          reason: `Skipped due to auth error: ${message}`
+          reason: `Skipped due to auth error: ${message}`,
+          errorCode: "culturecare_auth"
         };
+      }
+      if (isAuthError) {
+        throw new Error(`CultureCare auth error: ${message}`);
       }
       throw error;
     }

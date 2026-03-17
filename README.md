@@ -10,6 +10,7 @@ It deduplicates via KV so the same candidate is not sent twice.
 - Runs scheduled search on Cloudflare Worker cron (`*/15 * * * *`).
 - Uses Culture Care by default (`ENABLE_CULTURECARE=true`).
 - Keeps APIA adapter available but disabled by default (`ENABLE_APIA=false`).
+- Uses APIA detail pages for strict female/pet/driving/swimming/lived-away filters when APIA is enabled.
 - Applies score threshold plus hard filters:
   - minimum age
   - female-only

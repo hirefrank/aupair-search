@@ -41,6 +41,8 @@ type MatchCriteria = {
   maturityGate: MaturityGate | null;
 };
 
+type MatchableSource = "culturecare" | "apia";
+
 function asBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue;
   const normalized = value.trim().toLowerCase();
@@ -154,6 +156,21 @@ function rawStringField(profile: RankedProfile, field: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function sourceOf(profile: RankedProfile): MatchableSource {
+  return profile.source === "apia" ? "apia" : "culturecare";
+}
+
+function apiaNeedsDetailFetch(criteria: MatchCriteria): boolean {
+  return (
+    criteria.requireFemale ||
+    criteria.requiredPets.length > 0 ||
+    criteria.allowedDrivingFrequencies.length > 0 ||
+    criteria.minDrivingYears > 0 ||
+    criteria.requireSwimmingSupervision ||
+    criteria.requireLivedAwayFromHome
+  );
+}
+
 function getEnglishLevel(profile: RankedProfile): number | null {
   const english = rawStringField(profile, "englishProficiencyLevel");
   if (!english) return null;
@@ -243,8 +260,10 @@ export function passesMaturityGate(profile: RankedProfile, gate: MaturityGate): 
   return signals >= gate.requiredSignals;
 }
 
-function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boolean {
+/** @internal Exported for testing */
+export function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boolean {
   const raw = profile.raw as Record<string, unknown>;
+  const source = sourceOf(profile);
 
   // Age check with maturity gate for candidates between maturityGate.minAge and criteria.minAge
   if (typeof profile.age !== "number") return false;
@@ -258,8 +277,11 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
 
   if (criteria.minEnglishLevel > 0) {
     const level = getEnglishLevel(profile);
-    // When level is available, enforce it; when unavailable (e.g. APIA), skip
-    if (level !== null && level < criteria.minEnglishLevel) return false;
+    if (source === "culturecare") {
+      if (level === null || level < criteria.minEnglishLevel) return false;
+    } else if (level !== null && level < criteria.minEnglishLevel) {
+      return false;
+    }
   }
 
   if (criteria.arrivalEarliest || criteria.arrivalLatest) {
@@ -274,7 +296,7 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
     const preferredAges = Array.isArray(rawPreferred)
       ? rawPreferred.filter((item): item is string => typeof item === "string")
       : [];
-    // APIA doesn't provide preferredAges — skip the check rather than rejecting
+    if (source === "culturecare" && preferredAges.length === 0) return false;
     if (preferredAges.length > 0) {
       const childAgesOk = criteria.childAges.every((childAge) =>
         preferredAges.some((rangeLabel) => preferredAgeIncludes(childAge, rangeLabel))
@@ -291,8 +313,10 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
         .filter(Boolean);
       const petsOk = criteria.requiredPets.every((requiredPet) => pets.includes(requiredPet));
       if (!petsOk) return false;
+    } else if (source === "culturecare") {
+      return false;
     }
-    // APIA: check petAllergies from detail — if they have dog allergies, reject
+
     const detail = rawDetail(profile);
     if (detail && typeof detail.petAllergies === "string") {
       const allergies = detail.petAllergies.toLowerCase();
@@ -302,7 +326,7 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
 
   if (criteria.allowedDrivingFrequencies.length > 0) {
     const drivingFrequency = rawStringField(profile, "drivingFrequency").trim().toLowerCase();
-    // Skip check when field is unavailable (avoid rejecting profiles missing the data)
+    if (source === "culturecare" && !drivingFrequency) return false;
     if (drivingFrequency) {
       const frequencyOk = criteria.allowedDrivingFrequencies.includes(drivingFrequency);
       if (!frequencyOk) return false;
@@ -310,8 +334,7 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
   }
 
   if (criteria.minDrivingYears > 0) {
-    let yearsDriving = parseDrivingYears(raw.yearsDriving);
-    // APIA fallback: compute from driverLicenseReceivedOn
+    let yearsDriving = parseDrivingYears(rawField(profile, "yearsDriving"));
     if (yearsDriving === null) {
       const detail = rawDetail(profile);
       if (detail && typeof detail.driverLicenseReceivedOn === "string") {
@@ -321,27 +344,29 @@ function matchesCriteria(profile: RankedProfile, criteria: MatchCriteria): boole
         }
       }
     }
-    // Skip check when field is unavailable
+    if (source === "culturecare" && yearsDriving === null) return false;
     if (yearsDriving !== null && yearsDriving < criteria.minDrivingYears) return false;
   }
 
   if (criteria.requireSwimmingSupervision) {
-    // CultureCare: boolean okToSuperviseSwimmingChildren
-    // APIA: detail.swimmer is a string like "Yes" / "No"
     const ccSwim = rawField(profile, "okToSuperviseSwimmingChildren");
     if (ccSwim === false) return false;
     if (ccSwim === undefined) {
       const detail = rawDetail(profile);
       if (detail && typeof detail.swimmer === "string") {
         if (/^no$/i.test(detail.swimmer.trim())) return false;
+      } else if (source === "culturecare") {
+        return false;
       }
+    } else if (ccSwim !== true && source === "culturecare") {
+      return false;
     }
   }
 
   if (criteria.requireLivedAwayFromHome) {
-    // CultureCare: boolean livedAwayFromHome
-    // APIA: not available — skip rather than reject
-    if (raw.livedAwayFromHome === false) return false;
+    const livedAway = rawField(profile, "livedAwayFromHome");
+    if (livedAway === false) return false;
+    if (source === "culturecare" && livedAway !== true) return false;
   }
 
   return true;
@@ -419,12 +444,22 @@ export async function runSearchPipeline(
 
   const enableCultureCare = asBoolean(env.ENABLE_CULTURECARE, true);
   const enableApia = asBoolean(env.ENABLE_APIA, false);
+  const apiaFetchDetails = asBoolean(env.APIA_FETCH_DETAILS, true);
 
   const [cultureCareResult, apiaResult] = await Promise.all([
     enableCultureCare
       ? cultureCare.run({ maxPages })
       : Promise.resolve(skippedResult("culturecare", "Disabled via ENABLE_CULTURECARE")),
-    enableApia ? apia.run({ maxPages }) : Promise.resolve(skippedResult("apia", "Disabled via ENABLE_APIA"))
+    !enableApia
+      ? Promise.resolve(skippedResult("apia", "Disabled via ENABLE_APIA"))
+      : !apiaFetchDetails && apiaNeedsDetailFetch(criteria)
+        ? Promise.resolve(
+            skippedResult(
+              "apia",
+              "APIA_FETCH_DETAILS must be true when APIA is enabled with female, pets, driving, swimming, or lived-away hard filters."
+            )
+          )
+        : apia.run({ maxPages })
   ]);
 
   const merged = rankProfiles(dedupeProfiles([...cultureCareResult.profiles, ...apiaResult.profiles]), prefs);

@@ -231,6 +231,7 @@ export class ApiaAdapter {
     const genderIdentity = extractField(bodyText, "Gender Identity");
     const petAllergies = extractField(bodyText, "Pet Allergies");
     const swimmer = extractField(bodyText, "Swimmer");
+    const livedAwayFromHome = extractField(bodyText, "Lived Away From Home");
     const infantQualified = extractField(bodyText, "Infant Qualified");
     const arrivalWindow = extractField(bodyText, "Arrival Window");
     const childcareHours = extractChildcareHours(bodyText);
@@ -246,6 +247,7 @@ export class ApiaAdapter {
       genderIdentity,
       petAllergies,
       swimmer,
+      livedAwayFromHome: parseYesNo(livedAwayFromHome),
       infantQualified: parseYesNo(infantQualified),
       arrivalWindow,
       childcareHours
@@ -394,8 +396,12 @@ export class ApiaAdapter {
           source: "apia",
           profiles: [],
           skipped: true,
-          reason: `Skipped due to auth error: ${message}`
+          reason: `Skipped due to auth error: ${message}`,
+          errorCode: "apia_auth"
         };
+      }
+      if (isAuthError) {
+        throw new Error(`APIA auth error: ${message}`);
       }
       throw error;
     }
