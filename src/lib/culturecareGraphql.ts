@@ -80,8 +80,13 @@ export async function getCultureCareBearerToken(env: NodeJS.ProcessEnv): Promise
     throw new Error("No CULTURECARE_BEARER or CULTURECARE_REFRESH_TOKEN found");
   }
 
-  const refreshed = await refreshCognitoIdToken({ region, clientId, refreshToken });
-  return refreshed.idToken;
+  try {
+    const refreshed = await refreshCognitoIdToken({ region, clientId, refreshToken });
+    return refreshed.idToken;
+  } catch (error) {
+    if (direct) return direct;
+    throw error;
+  }
 }
 
 export async function getCultureCareIdToken(env: NodeJS.ProcessEnv): Promise<string> {
@@ -98,8 +103,15 @@ export async function getCultureCareIdToken(env: NodeJS.ProcessEnv): Promise<str
     throw new Error("No CULTURECARE_ID_TOKEN, CULTURECARE_BEARER or CULTURECARE_REFRESH_TOKEN found");
   }
 
-  const refreshed = await refreshCognitoIdToken({ region, clientId, refreshToken });
-  return refreshed.idToken;
+  try {
+    const refreshed = await refreshCognitoIdToken({ region, clientId, refreshToken });
+    return refreshed.idToken;
+  } catch (error) {
+    if (direct) return direct;
+    const fallback = env.CULTURECARE_BEARER;
+    if (fallback) return fallback;
+    throw error;
+  }
 }
 
 export async function favoriteAuPair(params: {
