@@ -2,13 +2,20 @@ import { Hono } from "hono";
 import { fetchWithRetry } from "./lib/http.js";
 import { runSearchPipeline } from "./lib/searchPipeline.js";
 import { favoriteApiaCandidate } from "./lib/apiaFavorites.js";
-import { favoriteAuPair, getCultureCareBearerToken } from "./lib/culturecareGraphql.js";
+import {
+  favoriteAuPair,
+  getAuPairAvailability,
+  getCultureCareBearerToken,
+  getCultureCareIdToken,
+  listFavoritedAuPairs
+} from "./lib/culturecareGraphql.js";
 import {
   buildCandidateDetailsModal,
   parseBookmarkPayload,
   parseCandidateDetailsPayload,
   sendApiaAuthAlert,
   sendCultureCareAuthAlert,
+  sendCultureCareFavoriteAvailableAlert,
   sendSlackCandidates
 } from "./lib/slack.js";
 import type { AdapterRunResult, RankedProfile } from "./types.js";
@@ -277,6 +284,7 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
   thresholdMatches: number;
   notifiedMatches: number;
   skippedAsAlreadyNotified: number;
+  favoriteAvailableNotified: number;
 }> {
   const env = toRuntimeEnv(bindings);
   const maxPages = asNumber(env.MAX_PAGES, 200);
@@ -333,6 +341,57 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     }
   }
 
+  let favoriteAvailableNotified = 0;
+  const favoriteAvailabilityEnabled = String(env.CULTURECARE_NOTIFY_FAVORITES_AVAILABLE || "true") === "true";
+  if (
+    favoriteAvailabilityEnabled &&
+    webhookUrl &&
+    !run.bySource.culturecare.skipped &&
+    (env.CULTURECARE_HOST_FAMILY_ID || "")
+  ) {
+    try {
+      const graphqlToken = env.CULTURECARE_BEARER || (await getCultureCareBearerToken(env));
+      const idToken = await getCultureCareIdToken(env);
+      const favorites = await listFavoritedAuPairs({
+        bearerToken: graphqlToken,
+        hfId: env.CULTURECARE_HOST_FAMILY_ID || ""
+      });
+      const available = await getAuPairAvailability({
+        bearerToken: idToken,
+        apIds: favorites.map((favorite) => favorite.apId)
+      });
+
+      const availableNow = available.filter((entry) => entry.available && entry.isVisible);
+      const profileById = new Map(
+        run.bySource.culturecare.profiles
+          .filter((profile) => profile.id)
+          .map((profile) => [profile.id as string, profile])
+      );
+      const alertTtlMinutes = asNumber(env.CULTURECARE_FAVORITE_AVAILABLE_TTL_MINUTES, 60);
+
+      for (const entry of availableNow) {
+        const ttlKey = `alert:culturecare-favorite-available:${entry.apId}`;
+        const shouldSend = await shouldSendTtlKey(bindings.MATCH_NOTIFICATIONS, ttlKey, alertTtlMinutes * 60);
+        if (!shouldSend) continue;
+
+        await sendCultureCareFavoriteAvailableAlert({
+          webhookUrl,
+          profile: profileById.get(entry.apId),
+          apId: entry.apId,
+          reason: "Phase 1 notification: favorited au pair is available to chat now."
+        });
+        favoriteAvailableNotified += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (containsCultureCareAuthError(message)) {
+        await maybeSendCultureCareAuthAlert(bindings, env, message);
+      } else {
+        console.error("Culture Care favorite availability check failed", error);
+      }
+    }
+  }
+
   return {
     totalProfiles: run.merged.length,
     threshold: run.threshold,
@@ -340,7 +399,8 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     scoreThresholdApplied: run.scoreThresholdApplied,
     thresholdMatches: run.thresholdMatches.length,
     notifiedMatches,
-    skippedAsAlreadyNotified
+    skippedAsAlreadyNotified,
+    favoriteAvailableNotified
   };
 }
 

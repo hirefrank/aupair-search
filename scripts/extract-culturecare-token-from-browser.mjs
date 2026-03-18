@@ -202,7 +202,9 @@ async function main() {
   }
 
   matches.sort((a, b) => b.exp - a.exp);
-  const best = matches[0];
+  const bestAccess = matches.find((match) => match.tokenUse === "access") || null;
+  const bestId = matches.find((match) => match.tokenUse === "id") || null;
+  const best = bestAccess || bestId || matches[0];
 
   let refreshToken = null;
   try {
@@ -219,6 +221,7 @@ async function main() {
   process.stdout.write(
     JSON.stringify({
       bearer: best.token,
+      idToken: bestId?.token || null,
       refreshToken,
       meta: {
         tokenUse: best.tokenUse,

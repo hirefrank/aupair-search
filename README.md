@@ -21,6 +21,7 @@ It deduplicates via KV so the same candidate is not sent twice.
 - Optional: in-Slack `View Details` modal via Slack interactivity when enabled.
 - When modal mode is enabled, also includes an `Open Profile` button.
 - Sends auth-expiry Slack alert with reauth button when Culture Care auth fails.
+- Phase 1 Culture Care favorite chat alerts: notifies when a favorited au pair becomes available to chat.
 
 ## Required stack
 
@@ -91,6 +92,15 @@ Configured with env vars (defaults currently set to your request):
 - `MATCH_REQUIRED_PETS=dogs`
 - `MATCH_ALLOWED_DRIVING_FREQUENCIES=daily,weekly`
 - `MATCH_MIN_DRIVING_YEARS=1`
+- `CULTURECARE_NOTIFY_FAVORITES_AVAILABLE=true`
+- `CULTURECARE_FAVORITE_AVAILABLE_TTL_MINUTES=60`
+
+## Culture Care favorite chat alerts
+
+- Current phase only checks whether a Culture Care favorite is currently available to chat.
+- It does not yet inspect active vs archived conversations before notifying.
+- Notifications are deduped per au pair for `CULTURECARE_FAVORITE_AVAILABLE_TTL_MINUTES`.
+- Later phase: only notify or auto-initiate chat when there is no active or archived conversation.
 - `MATCH_REQUIRE_SWIMMING_SUPERVISION=true`
 - `MATCH_REQUIRE_LIVED_AWAY_FROM_HOME=true`
 

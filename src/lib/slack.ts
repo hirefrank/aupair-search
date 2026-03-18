@@ -19,6 +19,13 @@ type SlackAuthAlertOptions = {
   errorMessage: string;
 };
 
+type SlackFavoriteAvailableOptions = {
+  webhookUrl: string;
+  profile?: RankedProfile;
+  apId: string;
+  reason?: string;
+};
+
 type SlackPayload = {
   text: string;
   blocks?: unknown[];
@@ -782,5 +789,62 @@ export async function sendCultureCareAuthAlert({
         ]
       }
     ]
+  });
+}
+
+export async function sendCultureCareFavoriteAvailableAlert({
+  webhookUrl,
+  profile,
+  apId,
+  reason
+}: SlackFavoriteAvailableOptions): Promise<void> {
+  const name = safe(profile?.name, `Favorited au pair ${apId.slice(0, 8)}`);
+  const display = profile ? buildSlackDisplaySummary(profile) : null;
+  const summary = display
+    ? `${display.location} | ${display.age} | ${display.experience}\nEnglish ${display.english} | Arrival ${display.arrival}`
+    : `Culture Care favorite is available to chat now.\nAu pair id: ${apId}`;
+
+  const blocks: unknown[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "Culture Care favorite available"
+      }
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${escapedMrkdwn(name)}*\n${escapedMrkdwn(summary)}`
+      }
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: escapedMrkdwn(reason || "Phase 1: notifying when a favorited au pair becomes available to chat.")
+        }
+      ]
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "Open Site"
+          },
+          url: CULTURECARE_HOME_URL
+        }
+      ]
+    }
+  ];
+
+  await sendSlackPayload(webhookUrl, {
+    text: `Culture Care favorite available: ${name}`,
+    blocks
   });
 }

@@ -108,6 +108,9 @@ fi
 if [ -z "${CULTURECARE_REFRESH_TOKEN:-}" ]; then
   CULTURECARE_REFRESH_TOKEN="$(read_env_value "CULTURECARE_REFRESH_TOKEN" "$ENV_FILE")"
 fi
+if [ -z "${CULTURECARE_ID_TOKEN:-}" ]; then
+  CULTURECARE_ID_TOKEN="$(read_env_value "CULTURECARE_ID_TOKEN" "$ENV_FILE")"
+fi
 if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
   SLACK_WEBHOOK_URL="$(read_env_value "SLACK_WEBHOOK_URL" "$ENV_FILE")"
 fi
@@ -154,7 +157,7 @@ fi
 APIA_SECRETS_VALID=false
 
 # Optional extractor command: must print JSON like
-# {"bearer":"...","refreshToken":"..."}
+# {"bearer":"...","idToken":"...","refreshToken":"..."}
 if [ -z "${CULTURECARE_TOKEN_COMMAND:-}" ]; then
   CULTURECARE_TOKEN_COMMAND="bun \"$PROJECT_DIR/scripts/extract-culturecare-token-from-browser.mjs\""
 fi
@@ -163,9 +166,13 @@ if [ -n "${CULTURECARE_TOKEN_COMMAND:-}" ]; then
   if TOKEN_JSON=$(bash -lc "$CULTURECARE_TOKEN_COMMAND" 2>/dev/null); then
   if [ -n "$TOKEN_JSON" ]; then
     CULTURECARE_BEARER_FROM_CMD=$(printf "%s" "$TOKEN_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.bearer==='string'?d.bearer:'')")
+    CULTURECARE_ID_FROM_CMD=$(printf "%s" "$TOKEN_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.idToken==='string'?d.idToken:'')")
     CULTURECARE_REFRESH_FROM_CMD=$(printf "%s" "$TOKEN_JSON" | bun -e "const d=JSON.parse(await Bun.stdin.text());process.stdout.write(typeof d.refreshToken==='string'?d.refreshToken:'')")
     if [ -n "$CULTURECARE_BEARER_FROM_CMD" ]; then
       export CULTURECARE_BEARER="$CULTURECARE_BEARER_FROM_CMD"
+    fi
+    if [ -n "$CULTURECARE_ID_FROM_CMD" ]; then
+      export CULTURECARE_ID_TOKEN="$CULTURECARE_ID_FROM_CMD"
     fi
     if [ -n "$CULTURECARE_REFRESH_FROM_CMD" ]; then
       export CULTURECARE_REFRESH_TOKEN="$CULTURECARE_REFRESH_FROM_CMD"
@@ -233,6 +240,11 @@ echo "Syncing Culture Care secrets using $WRANGLER_CONFIG_FILE"
 if [ -n "${CULTURECARE_BEARER:-}" ]; then
   printf "%s" "$CULTURECARE_BEARER" | bunx wrangler secret put CULTURECARE_BEARER --config "$WRANGLER_CONFIG_FILE"
   echo "Updated CULTURECARE_BEARER"
+fi
+
+if [ -n "${CULTURECARE_ID_TOKEN:-}" ]; then
+  printf "%s" "$CULTURECARE_ID_TOKEN" | bunx wrangler secret put CULTURECARE_ID_TOKEN --config "$WRANGLER_CONFIG_FILE"
+  echo "Updated CULTURECARE_ID_TOKEN"
 fi
 
 if [ -n "${CULTURECARE_REFRESH_TOKEN:-}" ]; then
