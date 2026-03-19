@@ -6,7 +6,6 @@ import {
   favoriteAuPair,
   getAuPairAvailability,
   getCultureCareBearerToken,
-  getCultureCareIdToken,
   listFavoritedAuPairs
 } from "./lib/culturecareGraphql.js";
 import {
@@ -350,14 +349,13 @@ async function runScheduledSearch(bindings: Bindings): Promise<{
     (env.CULTURECARE_HOST_FAMILY_ID || "")
   ) {
     try {
-      const graphqlToken = env.CULTURECARE_BEARER || (await getCultureCareBearerToken(env));
-      const idToken = await getCultureCareIdToken(env);
+      const bearerToken = await getCultureCareBearerToken(env);
       const favorites = await listFavoritedAuPairs({
-        bearerToken: graphqlToken,
+        bearerToken,
         hfId: env.CULTURECARE_HOST_FAMILY_ID || ""
       });
       const available = await getAuPairAvailability({
-        bearerToken: idToken,
+        bearerToken,
         apIds: favorites.map((favorite) => favorite.apId)
       });
 

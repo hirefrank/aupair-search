@@ -89,31 +89,6 @@ export async function getCultureCareBearerToken(env: NodeJS.ProcessEnv): Promise
   }
 }
 
-export async function getCultureCareIdToken(env: NodeJS.ProcessEnv): Promise<string> {
-  const direct = env.CULTURECARE_ID_TOKEN;
-  if (direct && isTokenFresh(direct, 120)) return direct;
-
-  const refreshToken = env.CULTURECARE_REFRESH_TOKEN;
-  const clientId = env.CULTURECARE_COGNITO_CLIENT_ID || "3jsqobi851prmu958rn4b0t26e";
-  const region = env.CULTURECARE_COGNITO_REGION || "us-east-1";
-
-  if (!refreshToken) {
-    const fallback = env.CULTURECARE_BEARER;
-    if (fallback) return fallback;
-    throw new Error("No CULTURECARE_ID_TOKEN, CULTURECARE_BEARER or CULTURECARE_REFRESH_TOKEN found");
-  }
-
-  try {
-    const refreshed = await refreshCognitoIdToken({ region, clientId, refreshToken });
-    return refreshed.idToken;
-  } catch (error) {
-    if (direct) return direct;
-    const fallback = env.CULTURECARE_BEARER;
-    if (fallback) return fallback;
-    throw error;
-  }
-}
-
 export async function favoriteAuPair(params: {
   bearerToken: string;
   apId: string;
@@ -193,7 +168,7 @@ export async function listFavoritedAuPairs(params: {
     {
       method: "POST",
       headers: {
-        authorization: `${params.bearerToken}`,
+        authorization: `Bearer ${params.bearerToken}`,
         "content-type": "application/json; charset=utf-8",
         accept: "application/json"
       },
